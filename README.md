@@ -13,6 +13,7 @@
 | [`examples/`](./examples/) | **6 industry demo projects** — ready-to-run benchmarks |
 | [`autoresearch.config.json`](./autoresearch.config.json) | Loop configuration (working dir, max iterations) |
 | [`autoresearch.ideas.md`](./autoresearch.ideas.md) | Ideas backlog with stop-signal guards |
+| [`autoresearch.template.md`](./autoresearch.template.md) | **Bring your own rules** — fill in your metrics, termination conditions, scope |
 
 ## The `loop` CLI
 
@@ -68,17 +69,34 @@ go test -bench=. -benchmem -count=3
 go test -v -count=1 ./...
 ```
 
-## Quick Start
+## Use It on Your Own Project
 
 ```bash
-# Build the CLI
+# 1. Build the CLI
 go build -o loop ./cmd/loop/
 
-# Point it at any project
-cd examples/logistics-route
-../../loop init "Optimize route" compute_us --unit µs --direction lower
-../../loop run "go test -bench=BenchmarkNearestNeighbor -benchmem -count=3"
+# 2. Copy the template to your project
+cp loop autoresearch.config.json autoresearch.template.md your-project/
+cd your-project
+mv autoresearch.template.md autoresearch.md
+
+# 3. Edit autoresearch.md:
+#    - Set your objective
+#    - Define YOUR primary metric (tx/s, ms, kb, etc.)
+#    - Set YOUR termination conditions
+#    - List YOUR files in scope / off limits
+
+# 4. Initialize and baseline
+./loop init "My Project" your_metric --unit ms --direction lower
+./loop run "go build ./... && go test ./... -count=1"
+
+# 5. Loop: implement → measure → keep or discard
+./loop run "go build ./... && go test ./... -bench=."
 ```
+
+## License
+
+MIT
 
 ## License
 
