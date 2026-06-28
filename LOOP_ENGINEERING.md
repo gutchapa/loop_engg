@@ -89,8 +89,8 @@ confidence = best_improvement / noise_floor
 ┌─────────────────────────────────────────────────────────────┐
 │  3. VERIFY                                                  │
 │  ──────                                                     │
-│  • Run full build (npm run build)                           │
-│  • Run full test suite (npm test / vitest run)              │
+│  • Run full build (go build ./...)                          │
+│  • Run full test suite (go test ./...)                      │
 │  • If either fails → diagnose, fix, re-verify               │
 │  • No partial successes — all or nothing                    │
 └─────────────────────────────────────────────────────────────┘
@@ -99,9 +99,9 @@ confidence = best_improvement / noise_floor
 ┌─────────────────────────────────────────────────────────────┐
 │  4. MEASURE                                                 │
 │  ───────                                                    │
-│  • Run the benchmark script (autoresearch.sh)               │
-│  • Record primary metric (test_count)                       │
-│  • Record secondary metrics (build_ok, build_time_s)        │
+│  • Run the benchmark script (./loop run <command>)          │
+│  • Record primary metric                                    │
+│  • Record secondary metrics                                 │
 │  • Parse METRIC lines from output                           │
 └─────────────────────────────────────────────────────────────┘
                             │
@@ -141,8 +141,7 @@ confidence = best_improvement / noise_floor
 | Tool | Role in Loop Engg |
 |------|-------------------|
 | **read** | Examine source files, understand root causes |
-| **`loop` CLI** | Go binary — init, run (timed), check, version. Replaces bash autoresearch.sh |
-| **bash** | Run shell commands (install, build, test, git) |
+| **`loop` CLI** | Go binary — init, run (timed), check, version |
 | **edit** | Make precise, targeted code changes |
 | **write** | Create new files (components, tests, docs) |
 | **init_experiment** | Initialize experiment session with metric config |
@@ -260,25 +259,24 @@ Combined: a **self-correcting autonomous system** that builds software through r
 To apply Loop Engineering to your own project:
 
 1. **Build the CLI:**
-   ```bash
+1. **Build the CLI:**
+   ```
    go build -o loop ./cmd/loop/
    ```
 
 2. **Set up the infrastructure:**
-   ```bash
-   # Copy the Go binary and config to your project
-   cp loop autoresearch.config.json your-project/
-   # Set workingDir and maxIterations in autoresearch.config.json
-   # Create autoresearch.md with your rules
    ```
+   cp loop autoresearch.config.json your-project/
+   ```
+   Set `workingDir` and `maxIterations` in `autoresearch.config.json`. Create `autoresearch.md` with your rules.
 
 3. **Define your metric** — what are you optimizing?
    - Test count? Build time? Bundle size? Performance?
 
 4. **Create a baseline:**
-   ```bash
+   ```
    ./loop init "Baseline" test_count --direction higher
-   ./loop run "npm run build && npx vitest run --reporter=json"
+   ./loop run "go test ./..."
    ```
 
 5. **Start the loop:**

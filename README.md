@@ -1,7 +1,7 @@
 # 🧪 Loop Engineering
 
 > *Build software through autonomous, self-correcting experiment loops.*
-> Now rewritten in **Go** — single binary, zero dependencies, cross-platform.
+> Written in **Go** — single binary, zero dependencies, cross-platform.
 
 ## What's Inside
 
@@ -16,17 +16,15 @@
 
 ## The `loop` CLI
 
-A single Go binary replaces the old bash-based autoresearch.sh:
-
 ```bash
 # Initialize a new experiment session
 ./loop init "Optimize build" build_time_s --unit s --direction lower
 
 # Run a benchmark command (timed, captures METRIC lines)
-./loop run "npm run build && npx vitest run --reporter=json"
+./loop run "go build ./... && go test ./..."
 
 # Run with timeout
-./loop run "python train.py" --timeout 300
+./loop run "make benchmark" --timeout 300
 
 # Validate project state
 ./loop check
@@ -66,7 +64,7 @@ go build -o loop ./cmd/loop/
 cp loop autoresearch.config.json your-project/
 # Configure: set workingDir, maxIterations in autoresearch.config.json
 # Run:
-./loop run "npm run build && npm test"
+./loop run "go test ./..."
 ```
 
 ## License
