@@ -10,21 +10,21 @@
 | [`LOOP_ENGINEERING.md`](./LOOP_ENGINEERING.md) | Full methodology — principles, loop diagram, tooling, ASI, real-world results |
 | [`cmd/loop/main.go`](./cmd/loop/main.go) | **`loop` CLI** — the experiment engine (Go, single binary) |
 | [`internal/`](./internal/) | Go packages: config, run, metric, log |
+| [`examples/`](./examples/) | **6 industry demo projects** — ready-to-run benchmarks |
 | [`autoresearch.config.json`](./autoresearch.config.json) | Loop configuration (working dir, max iterations) |
-| [`autoresearch.md`](./autoresearch.md) | Loop rules — objective, metrics, files in scope, termination conditions |
 | [`autoresearch.ideas.md`](./autoresearch.ideas.md) | Ideas backlog with stop-signal guards |
 
 ## The `loop` CLI
 
 ```bash
 # Initialize a new experiment session
-./loop init "Optimize build" build_time_s --unit s --direction lower
+./loop init "Optimize search" search_latency_us --unit µs --direction lower
 
 # Run a benchmark command (timed, captures METRIC lines)
-./loop run "go build ./... && go test ./..."
+./loop run "go test -bench=. ./..."
 
 # Run with timeout
-./loop run "make benchmark" --timeout 300
+./loop run "go test -bench=BenchmarkBatch -count=5 ./..." --timeout 120
 
 # Validate project state
 ./loop check
@@ -43,16 +43,30 @@ METRIC duration_ms=1240
 METRIC duration_s=1.240
 METRIC timed_out=0
 METRIC build_ok=1
-METRIC test_count=244
+METRIC bench_items_per_sec=85000
 ```
 
 Any `METRIC` lines from the child command's output are forwarded automatically.
 
-## The Repo That Proves It
+## Industry Examples
 
-The **dues-dashboard** — a full-featured payment tracking app — was built entirely through this methodology. [Check it out →](https://github.com/gutchapa/dues-dashboard)
+Pick an example that matches your domain and run it:
 
-58 sequential experiments. 244 passing tests. Zero regressions. One AI agent.
+| Industry | Example | Optimization Target |
+|----------|---------|-------------------|
+| 💳 **FinTech** | `examples/fintech-pay/` | Max transactions/sec through Luhn validation pipeline |
+| 🏥 **Healthcare** | `examples/healthcare-search/` | Min search latency (ms) for patient records |
+| 🛒 **E-Commerce** | `examples/ecommerce-catalog/` | Min filter+sort latency (µs) for product catalog |
+| 🔧 **DevOps** | `examples/devops-logparse/` | Max lines/sec parsed from unstructured logs |
+| 🎬 **Media** | `examples/media-thumb/` | Min processing time per thumbnail (µs) |
+| 🚚 **Logistics** | `examples/logistics-route/` | Min route computation time with quality constraints |
+
+```bash
+# Try one out
+cd examples/fintech-pay
+go test -bench=. -benchmem -count=3
+go test -v -count=1 ./...
+```
 
 ## Quick Start
 
@@ -60,11 +74,10 @@ The **dues-dashboard** — a full-featured payment tracking app — was built en
 # Build the CLI
 go build -o loop ./cmd/loop/
 
-# Apply to your own project
-cp loop autoresearch.config.json your-project/
-# Configure: set workingDir, maxIterations in autoresearch.config.json
-# Run:
-./loop run "go test ./..."
+# Point it at any project
+cd examples/logistics-route
+../../loop init "Optimize route" compute_us --unit µs --direction lower
+../../loop run "go test -bench=BenchmarkNearestNeighbor -benchmem -count=3"
 ```
 
 ## License

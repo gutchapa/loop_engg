@@ -172,15 +172,17 @@ Every experiment is annotated with structured ASI:
 
 ```json
 {
-  "hypothesis": "Adding keyboard shortcuts will improve UX without breaking tests",
-  "files_modified": ["src/components/DuesSearch.tsx", "src/lib/useKeyboardShortcuts.ts"],
-  "new_tests": 7,
-  "total_test_count": 159,
+  "hypothesis": "Parallel goroutines will increase Luhn validation throughput",
+  "files_modified": ["pay.go"],
+  "benchmark": "BenchmarkBatchProcess",
+  "tx_per_sec_before": 85000,
+  "tx_per_sec_after": 142000,
+  "speedup": "1.67x",
   "dead_ends": [
-    "useEffect cleanup for global listeners — forgot to return removeEventListener",
-    "Esc key to close form also closes ConfirmDialog — had to whitelist"
+    "sync.Pool for Luhn buffers caused race — need per-goroutine allocation",
+    "batching >1000 txs at once hit goroutine scheduling overhead"
   ],
-  "next_action": "Add undo delete — toast action button + restore logic"
+  "next_action": "Try SIMD-accelerated Luhn via avo library"
 }
 ```
 
@@ -188,35 +190,36 @@ ASI is the **institutional memory** of the loop. It survives code reverts. It te
 
 ---
 
-## Real-World Results: 58 Experiments
+## Built-In Demo Projects
 
-### What was built
-A full-featured dues management dashboard — **entirely one experiment at a time**:
+Six industry-aligned Go projects ship with the repo. Each is a real, runnable benchmark target:
 
+| Industry | Package | Optimize | Tests | Benchmarks |
+|----------|---------|----------|-------|-----------|
+| 💳 FinTech | `examples/fintech-pay/` | tx/sec (Luhn validation) | 9 | 3 |
+| 🏥 Healthcare | `examples/healthcare-search/` | search latency (ms) | 10 | 4 |
+| 🛒 E-Commerce | `examples/ecommerce-catalog/` | filter+sort latency (µs) | 9 | 3 |
+| 🔧 DevOps | `examples/devops-logparse/` | lines/sec parsed | 10 | 3 |
+| 🎬 Media | `examples/media-thumb/` | thumbnail time (µs) | 7 | 4 |
+| 🚚 Logistics | `examples/logistics-route/` | route time (µs) | 9 | 4 |
+
+### Example: Optimizing FinTech Payment Validation
+
+```bash
+cd examples/fintech-pay
+# Baseline
+../../loop init "Optimize validation throughput" tx_per_sec --unit "tx/s" --direction higher
+../../loop run "go test -bench=BenchmarkBatchProcess -benchmem -count=3"
+
+# Hypothesis: parallel goroutines will increase throughput
+# ... implement change ...
+
+# Measure
+../../loop run "go test -bench=BenchmarkBatchProcess -benchmem -count=3"
+# If improved → KEEP, else → DISCARD
 ```
-Phase 1 (2 exp): Fix build, add test framework
-Phase 2 (56 exp): Build features in order of dependency:
 
-CRUD → Filter → Sort → Search → Delete → Edit → Persist →
-Export → Badges → Category filter → Bulk actions → Pagination →
-Dark mode → Toasts → Confirm dialogs → MongoDB/API → 
-Inline editing → Reminder banner → API client → A11y →
-Batch category → Keyboard shortcuts → Undo delete →
-Service layer → Summary component → Dismissible reminder →
-Notes column → CSV/JSON import → formatCurrency →
-Persistent dismiss → Edge-case tests → CSV content checks →
-Sort tiebreaker → Bulk confirm → Dated exports →
-All-selected text → Auto-focus → Clear search → Loading spinner
-```
-
-### Final State
-| Metric | Before | After | Delta |
-|--------|--------|-------|-------|
-| Build | ❌ Broken | ✅ ~2.7s | Fixed |
-| Tests | 0 | **244** | +244 tests |
-| Test files | 0 | **23** | +23 files |
-| Components | 0 | **16** | +16 components |
-| Modules | 0 | **6** | +6 modules |
+Each example follows the same pattern: measure → hypothesize → implement → verify → decide.
 | API routes | 0 | **4** | +4 routes |
 
 ### Keep Rate
