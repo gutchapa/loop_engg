@@ -14,8 +14,24 @@ Build real dues-dashboard features (dues list, CRUD operations, filtering/sortin
 | `run_experiment` | Run the benchmark command with timing |
 | `log_experiment` | Record result (keep/discard) with ASI annotations |
 
-## Termination Condition
-No hard termination — loop continues indefinitely, adding features and tests. Each iteration must:
+## Termination Condition (CRITICAL — prevents infinite loop)
+
+The loop MUST stop when any of these are true. Check these BEFORE starting any new experiment:
+
+### Stop Signals (hard stops — no new experiments allowed):
+1. **User says to stop** — "r u done", "stop", "lets not overdo", any variant. Halt immediately.
+2. **App delivered to user for testing** — if the user is now testing on their device, stop generating hypotheses.
+3. **No more user-requested features** — all features the user asked for are implemented.
+4. **Ideas backlog is empty or all stale** — nothing left worth building.
+
+### Non-Termination ≠ New Experiment (soft stops — proceed but don't invent):
+- If tests pass, build passes, but there are NO bugs to fix, NO user requests to fulfill, and NO ideas in the backlog → **STOP**. Do not invent new hypotheses.
+- The metric is a proxy for quality, not a target to chase. Higher test count is NOT an end in itself.
+
+### Safety check at session start:
+Before resuming the loop, ask: "Is there an actual user need to address, or am I generating busywork?" If the answer is "busywork" → delete ideas.md contents and exit.
+
+Each iteration must still satisfy:
 1. **Build passes** — `npm run build` exits with code 0, no errors
 2. **Tests pass** — All existing tests must still pass (regression check)
 3. **New content added** — Feature, component, or test added

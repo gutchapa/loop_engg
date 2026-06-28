@@ -124,10 +124,13 @@ confidence = best_improvement / noise_floor
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Check termination:                                         │
-│  - Max iterations reached? → STOP                           │
-│  - No more promising ideas? → STOP                          │
-│  - Otherwise → LOOP back to OBSERVE                         │
+│  Check termination (STOP SIGNALS):                             │
+│  - User said to stop? → STOP                                  │
+│  - App delivered to user for testing? → STOP                  │
+│  - No more user-requested features? → STOP                    │
+│  - Ideas backlog empty/stale? → STOP                          │
+│  - Max iterations reached? → STOP                             │
+│  - Otherwise → LOOP back to OBSERVE                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -276,10 +279,60 @@ To apply Loop Engineering to your own project:
 
 ---
 
+## Lessons Learned: The Infinite Loop Bug
+
+### The Problem
+
+The original loop had no **terminal condition** for "done." It said "No hard termination — continues indefinitely" and treated `test_count` as a target to chase forever. After auto-compaction, the agent would resume generating hypotheses even though:
+
+- The user had explicitly said to stop
+- The app had been delivered for testing
+- No new features were requested
+
+This is a design flaw: a self-correcting loop that doesn't know when to stop isn't self-correcting — it's **endless busywork**. The loop optimizes for its own continuation rather than for shipping value.
+
+### The Fix
+
+Added **hard stop signals** to the termination check:
+
+1. **User says stop** — any variant of "r u done", "stop", "lets not overdo"
+2. **App delivered to user** for testing → STOP
+3. **No more user-requested features** → STOP (don't generate busywork)
+4. **Ideas backlog empty/stale** → STOP
+5. **Max iterations reached** → STOP (original check retained)
+
+Also added a **safety check** at session start: *"Is there an actual user need, or is this busywork?"* If busywork → prune the ideas backlog and exit.
+
+### How to Implement in Your Loop
+
+In your `autoresearch.md`, replace a simple termination line with explicit stop signals:
+
+```
+│  Check termination (STOP SIGNALS):                             │
+│  - User said to stop? → STOP                                  │
+│  - App delivered to user for testing? → STOP                  │
+│  - No more user-requested features? → STOP                    │
+│  - Ideas backlog empty/stale? → STOP                          │
+│  - Max iterations reached? → STOP                             │
+│  - Otherwise → LOOP back to OBSERVE                           │
+```
+
+Also add a guard at the top of `autoresearch.ideas.md`:
+
+```
+# HALT — Do not start new experiments unless user asks for new features.
+```
+
+### The Meta-Lesson
+
+A methodology that automates decision-making must also automate **when to stop**. The termination condition is as important as the iteration logic. Without it, the agent will optimize for metric-chasing over user satisfaction — the ultimate anti-pattern in autonomous engineering.
+
+---
+
 ## The Bottom Line
 
 > *Loop Engineering turns software development into a **repeatable, measurable, self-documenting process**. Instead of chaotic sprints and sprawling PRs, you get a clean chain of atomic experiments — each one a yes/no, keep/discard decision that either improves the codebase or teaches you something.*
 
-**58 experiments. 244 tests. Zero regressions. 100% keep rate.**
+**58 experiments across a real project. 244 tests. Zero regressions. 100% keep rate.**
 
 This repo is the proof.

@@ -1,6 +1,20 @@
-# Dues Dashboard — Complete Feature Inventory
+# Ideas Backlog — Template
 
-## Implemented (30 features across 34 experiments)
+## ⚠️ IMPORTANT: Stop Signals
+
+The loop **must** halt when any of these are true:
+1. User says to stop
+2. App delivered to user for testing
+3. No more user-requested features
+4. Ideas backlog empty/stale
+
+**Do NOT start new experiments unless the user explicitly asks for a new feature.**
+
+---
+
+## Demo Project: Dues Dashboard — Complete Feature Inventory
+
+### Implemented (30 features across 34 experiments)
 - ✅ All CRUD operations (Create, Read, Update, Delete) with confirmation dialogs
 - ✅ Status filtering tabs (All/Pending/Overdue/Paid) with ARIA tablist role
 - ✅ Column sorting (name/amount/date/status, asc/desc toggle) with aria-sort
