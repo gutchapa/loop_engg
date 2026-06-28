@@ -141,6 +141,7 @@ confidence = best_improvement / noise_floor
 | Tool | Role in Loop Engg |
 |------|-------------------|
 | **read** | Examine source files, understand root causes |
+| **`loop` CLI** | Go binary — init, run (timed), check, version. Replaces bash autoresearch.sh |
 | **bash** | Run shell commands (install, build, test, git) |
 | **edit** | Make precise, targeted code changes |
 | **write** | Create new files (components, tests, docs) |
@@ -258,24 +259,34 @@ Combined: a **self-correcting autonomous system** that builds software through r
 
 To apply Loop Engineering to your own project:
 
-1. **Set up the infrastructure:**
+1. **Build the CLI:**
    ```bash
-   # Clone the autoresearch template
-   cp -r /path/to/autoresearch/* your-project/
-   # Or create: autoresearch.sh, autoresearch.config.json, autoresearch.md
+   go build -o loop ./cmd/loop/
    ```
 
-2. **Define your metric** — what are you optimizing?
+2. **Set up the infrastructure:**
+   ```bash
+   # Copy the Go binary and config to your project
+   cp loop autoresearch.config.json your-project/
+   # Set workingDir and maxIterations in autoresearch.config.json
+   # Create autoresearch.md with your rules
+   ```
+
+3. **Define your metric** — what are you optimizing?
    - Test count? Build time? Bundle size? Performance?
 
-3. **Create a baseline** — run the benchmark and log the starting state
+4. **Create a baseline:**
+   ```bash
+   ./loop init "Baseline" test_count --direction higher
+   ./loop run "npm run build && npx vitest run --reporter=json"
+   ```
 
-4. **Start the loop:**
+5. **Start the loop:**
    ```
    Observe → Hypothesize → Implement → Verify → Measure → Decide → Repeat
    ```
 
-5. **Track everything** — every experiment is a commit or a lesson learned
+6. **Track everything** — every experiment is a commit or a lesson learned
 
 ---
 
