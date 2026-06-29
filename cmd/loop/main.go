@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gutchapa/loop/internal/bridge"
 	"github.com/gutchapa/loop/internal/config"
 	"github.com/gutchapa/loop/internal/llm"
 	"github.com/gutchapa/loop/internal/log"
@@ -527,23 +528,60 @@ func cmdAI(args []string) {
 	for iter := 1; iter <= maxIter; iter++ {
 		fmt.Fprintf(os.Stderr, "\n=== Iteration %d/%d ===\n", iter, maxIter)
 
-		// Build prompt
+		// Build conversation
 		systemPrompt := ctx.BuildSystemPrompt()
 		userPrompt := ctx.BuildUserPrompt()
 
-		// Call LLM
-		fmt.Fprintf(os.Stderr, "🤔 Calling LLM...\n")
-		response, err := client.SimpleChat(systemPrompt, userPrompt)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "❌ LLM error: %v\n", err)
-			continue
+		messages := []llm.Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
 		}
 
-		fmt.Fprintf(os.Stderr, "📝 LLM response:\n%s\n", truncate(response, 500))
+		// Multi-turn tool execution loop
+		maxTurns := 5
+		for turn := 1; turn <= maxTurns; turn++ {
+			fmt.Fprintf(os.Stderr, "🤔 LLM turn %d...\n", turn)
 
-		// Run tests after LLM response to check state
+			resp, err := client.Chat(llm.ChatRequest{Messages: messages})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "❌ LLM error: %v\n", err)
+				break
+			}
+
+			choice := resp.Choices[0].Message
+			messages = append(messages, choice)
+
+			// Parse tool calls
+			calls := bridge.ParseToolCalls(choice.Content)
+
+			if len(calls) == 0 {
+				// No tool calls — LLM is done thinking
+				fmt.Fprintf(os.Stderr, "📝 Plan:\n%s\n", truncate(choice.Content, 400))
+				break
+			}
+
+			// Execute tool calls
+			for _, tc := range calls {
+				fmt.Fprintf(os.Stderr, "🔧 %s → ", tc.Tool)
+				result := bridge.Execute(tc)
+				if result.Error != "" {
+					fmt.Fprintf(os.Stderr, "❌ %s\n", result.Error)
+				} else {
+					fmt.Fprintf(os.Stderr, "%s\n", truncate(strings.Split(result.Output, "\n")[0], 80))
+				}
+
+				// Feed result back to conversation
+				feedback := fmt.Sprintf("Tool result for %s:\n%s", tc.Tool, result.Output)
+				if result.Error != "" {
+					feedback = fmt.Sprintf("Tool error for %s: %s", tc.Tool, result.Error)
+				}
+				messages = append(messages, llm.Message{Role: "user", Content: feedback})
+			}
+		}
+
+		// Run tests after LLM conversation to verify changes
 		if cfg.Command != "" {
-			fmt.Fprintf(os.Stderr, "\n🧪 Running test command...\n")
+			fmt.Fprintf(os.Stderr, "\n🧪 Running tests...\n")
 			opts := run.Options{Timeout: timeout, Dir: workingDir}
 			result := run.Run(cfg.Command, opts)
 
@@ -553,10 +591,9 @@ func cmdAI(args []string) {
 			}
 
 			if result.ExitCode != 0 {
-				fmt.Fprintf(os.Stderr, "⚠️  Tests exited with code %d\n", result.ExitCode)
-				fmt.Fprintf(os.Stderr, "%s\n", truncate(result.Combined, 1000))
+				fmt.Fprintf(os.Stderr, "⚠️  Tests FAILED (exit %d)\n", result.ExitCode)
+				// Feed test failure back to LLM next iteration
 			}
-			_ = result // LLM will see output next iteration
 		}
 
 		// Refresh context for next iteration
