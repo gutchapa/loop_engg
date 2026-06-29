@@ -15,23 +15,23 @@
 | [`autoresearch.ideas.md`](./autoresearch.ideas.md) | Ideas backlog with stop-signal guards |
 | [`autoresearch.template.md`](./autoresearch.template.md) | **Bring your own rules** — fill in your metrics, termination conditions, scope |
 
-## The `loop` CLI
+## The `loop` CLI (Updated 2026-06-29)
 
 ```bash
+# Build the CLI (now with security hardening + clean build)
+go build -o loop ./cmd/loop/
+
 # Initialize a new experiment session
-./loop init "Optimize search" search_latency_us --unit µs --direction lower
+./loop init "Optimize validation" tx_per_sec --unit "tx/s" --direction higher
 
-# Run a benchmark command (timed, captures METRIC lines)
-./loop run "go test -bench=. ./..."
+# Run a benchmark (timed + METRIC parsing)
+./loop run "go test -bench=BenchmarkBatchProcess -benchmem -count=3" --timeout 30
 
-# Run with timeout
-./loop run "go test -bench=BenchmarkBatch -count=5 ./..." --timeout 120
-
-# Validate project state
+# Project health check
 ./loop check
 
-# Build from source
-go build -o loop ./cmd/loop/
+# Version
+./loop version
 ```
 
 ### METRIC Protocol
@@ -69,30 +69,24 @@ go test -bench=. -benchmem -count=3
 go test -v -count=1 ./...
 ```
 
-## Use It on Your Own Project
+## Use It on Your Own Project (Updated)
 
 ```bash
-# 1. Build the CLI
+# 1. Build (now security-hardened + warning on shell exec)
 go build -o loop ./cmd/loop/
 
-# 2. Copy the template to your project
-cp loop autoresearch.config.json autoresearch.template.md your-project/
-cd your-project
+# 2. Copy core files to your project
+cp loop autoresearch.config.json autoresearch.template.md ../your-new-project/
+cd ../your-new-project
 mv autoresearch.template.md autoresearch.md
 
-# 3. Edit autoresearch.md:
-#    - Set your objective
-#    - Define YOUR primary metric (tx/s, ms, kb, etc.)
-#    - Set YOUR termination conditions
-#    - List YOUR files in scope / off limits
-
-# 4. Initialize and baseline
-./loop init "My Project" your_metric --unit ms --direction lower
-./loop run "go build ./... && go test ./... -count=1"
-
-# 5. Loop: implement → measure → keep or discard
-./loop run "go build ./... && go test ./... -bench=."
+# 3. Edit autoresearch.md with your rules, metric, and stop signals
+# 4. Start the loop
+./loop init "Baseline" test_count --direction higher
+./loop run "go test ./... -count=1"
 ```
+
+**Security Note**: The `run` command uses `sh -c`. Only use it with trusted benchmark commands. Never pass raw user input.
 
 ## License
 

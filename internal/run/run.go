@@ -27,7 +27,12 @@ type Options struct {
 }
 
 // Run executes a shell command and captures all output.
+// WARNING: Uses shell execution. Only pass trusted commands (never user input directly).
 func Run(command string, opts Options) *Result {
+	if command == "" {
+		return &Result{ExitCode: -1, Combined: "error: empty command"}
+	}
+
 	res := &Result{}
 
 	// Parse the command
