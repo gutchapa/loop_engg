@@ -12,6 +12,7 @@ import (
 
 	"github.com/gutchapa/loop/internal/bridge"
 	"github.com/gutchapa/loop/internal/config"
+	"github.com/gutchapa/loop/internal/diagnose"
 	"github.com/gutchapa/loop/internal/learn"
 	"github.com/gutchapa/loop/internal/llm"
 	"github.com/gutchapa/loop/internal/log"
@@ -618,7 +619,17 @@ func cmdAI(args []string) {
 
 			if result.ExitCode != 0 {
 				fmt.Fprintf(os.Stderr, "⚠️  Tests FAILED (exit %d)\n", result.ExitCode)
-				// Feed test failure back to LLM next iteration
+				// Diagnose WHY it failed: code bug, env issue, dep conflict?
+				diag := diagnose.Analyze(result.ExitCode, result.Combined, store)
+				fmt.Fprintf(os.Stderr, "%s\n", diag.Summary())
+				if diag.KnownFix != nil {
+					fmt.Fprintf(os.Stderr, "🧠 Memory says: %s\n", diag.Suggestion)
+				}
+				// Feed diagnosis back to LLM
+				messages = append(messages, llm.Message{
+					Role:    "user",
+					Content: fmt.Sprintf("Tests failed. Diagnosis: %s\n%s\nFix the issue before continuing.", diag.Summary(), diag.Report()),
+				})
 			}
 		}
 

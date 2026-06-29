@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -155,17 +156,70 @@ func (ks *KnowledgeStore) Query(kind string, errorText string, conditions map[st
 }
 
 // FindInfraFix looks for infrastructure fixes matching the error text.
+// Returns nil unless at least one trigger string appears in the error text.
 func (ks *KnowledgeStore) FindInfraFix(errorText, project string) *Entry {
 	entries := ks.Query("infra_fix", errorText, map[string]string{"project": project})
-	if len(entries) > 0 && entries[0].Confidence >= 0.3 {
+	if len(entries) > 0 && entries[0].Confidence >= 0.3 && hasTriggerMatch(entries[0], errorText) {
 		return &entries[0]
 	}
 	// Fall back to global entries
 	entries = ks.Query("infra_fix", errorText, nil)
-	if len(entries) > 0 && entries[0].Confidence >= 0.3 {
+	if len(entries) > 0 && entries[0].Confidence >= 0.3 && hasTriggerMatch(entries[0], errorText) {
 		return &entries[0]
 	}
 	return nil
+}
+
+func hasTriggerMatch(e Entry, errorText string) bool {
+	if errorText == "" {
+		return false
+	}
+	lower := strings.ToLower(errorText)
+	for _, t := range e.Triggers {
+		if len(t) > 3 && strings.Contains(lower, strings.ToLower(t)) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractTriggers splits errorType and rootCause into searchable trigger phrases.
+func extractTriggers(errorType, rootCause string) []string {
+	var triggers []string
+	// Always include the full error type
+	if errorType != "" {
+		triggers = append(triggers, errorType)
+	}
+	// Split rootCause into individual lines and key phrases
+	if rootCause != "" {
+		triggers = append(triggers, rootCause)
+		// Extract key package@version patterns
+		re := regexp.MustCompile(`[\w.-]+@[\d.]+`)
+		for _, m := range re.FindAllString(rootCause, -1) {
+			triggers = append(triggers, m)
+		}
+		// Extract individual words > 3 chars as additional triggers
+		words := strings.Fields(rootCause)
+		for _, w := range words {
+			w = strings.Trim(w, `.,;:"'()[]{}`)
+			if len(w) > 4 {
+				triggers = append(triggers, w)
+			}
+		}
+	}
+	return dedupe(triggers)
+}
+
+func dedupe(ss []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // AntiPatterns returns known strategies that failed multiple times.
@@ -305,26 +359,30 @@ func (ks *KnowledgeStore) DistillFromLog(logPath string) error {
 		}
 		if errorType, ok := e.ASI["error_type"].(string); ok {
 			id := slug("infra:" + errorType)
+			fix := ""
+			if f, ok := e.ASI["fix"].(string); ok {
+				fix = f
+			}
+			rootCause := ""
+			if rc, ok := e.ASI["root_cause"].(string); ok {
+				rootCause = rc
+			}
+			triggers := extractTriggers(errorType, rootCause)
+
 			found := false
-			for _, ke := range ks.Entries {
-				if ke.ID == id {
+			for i := range ks.Entries {
+				if ks.Entries[i].ID == id {
+					// Refresh triggers with better extraction
+					ks.Entries[i].Triggers = triggers
+					if fix != "" {
+						ks.Entries[i].Fix = fix
+					}
+					ks.Entries[i].LastHit = time.Now()
 					found = true
 					break
 				}
 			}
 			if !found {
-				fix := ""
-				if f, ok := e.ASI["fix"].(string); ok {
-					fix = f
-				}
-				rootCause := ""
-				if rc, ok := e.ASI["root_cause"].(string); ok {
-					rootCause = rc
-				}
-				triggers := []string{errorType}
-				if rootCause != "" {
-					triggers = append(triggers, rootCause)
-				}
 
 				entry := Entry{
 					ID:          id,
