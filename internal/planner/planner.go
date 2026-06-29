@@ -83,7 +83,12 @@ func LoadContext(workingDir string) (*ProjectContext, error) {
 // BuildSystemPrompt creates the system prompt for the LLM agent.
 func (ctx *ProjectContext) BuildSystemPrompt() string {
 	prompt := `You are an autonomous coding agent running inside the Loop Engineering CLI.
-Your goal is to improve the project based on the rules and metrics below.
+Your goal is to improve the project based on the rules and context below.
+
+## Metrics can be HARD or SOFT
+- HARD metrics: numeric targets (e.g. "test_count >= 80", "latency_ms <= 50")
+- SOFT metrics (guardrails): must always pass (e.g. "build passes", "no regressions")
+- QUALITATIVE goals: subjective (e.g. "clean UI", "no data mismatches") — use your judgment
 
 ## Your capabilities
 You can use MCP tools to:
@@ -106,6 +111,8 @@ You can use MCP tools to:
 - Write clean, tested code
 - Run tests after every change to verify nothing breaks
 - If tests fail, fix them before moving on
+- Never break a guardrail (soft metric that must pass)
+- Qualitative improvements are valid — clean code, better UX, fewer bugs
 - Check termination conditions periodically`
 	return prompt
 }
@@ -123,7 +130,37 @@ func (ctx *ProjectContext) BuildUserPrompt() string {
 	}
 
 	b.WriteString("\n## Experiment Config\n")
-	b.WriteString(fmt.Sprintf("Metric: %s (%s, higher is better)\n", ctx.Config.MetricName, ctx.Config.Direction))
+
+	// Qualitative goals (soft — human judgment)
+	if ctx.Config.Goal != nil {
+		if ctx.Config.Goal.Summary != "" {
+			b.WriteString(fmt.Sprintf("Goal: %s\n", ctx.Config.Goal.Summary))
+		}
+		if len(ctx.Config.Goal.Qualitative) > 0 {
+			b.WriteString("Qualitative objectives:\n")
+			for _, q := range ctx.Config.Goal.Qualitative {
+				b.WriteString(fmt.Sprintf("  - %s\n", q))
+			}
+		}
+	}
+
+	// Guardrails (must always pass)
+	if len(ctx.Config.Guardrails) > 0 {
+		b.WriteString("\n🛡️ Guardrails (must NEVER break):\n")
+		for _, g := range ctx.Config.Guardrails {
+			b.WriteString(fmt.Sprintf("  - %s: %s\n", g.Name, g.Check))
+		}
+	}
+
+	// Hard metric (numeric target)
+	if ctx.Config.Metric != nil && ctx.Config.Metric.Name != "" {
+		b.WriteString(fmt.Sprintf("\nHard metric: %s (direction: %s)\n", ctx.Config.Metric.Name, ctx.Config.Metric.Direction))
+		if ctx.Config.Metric.Target.Metric != "" {
+			b.WriteString(fmt.Sprintf("Target: %s %s %.0f\n", ctx.Config.Metric.Target.Metric, ctx.Config.Metric.Target.Operator, ctx.Config.Metric.Target.Value))
+		}
+	}
+
+	// Fallback for legacy config
 	b.WriteString(fmt.Sprintf("Command: %s\n", ctx.Config.Command))
 	if ctx.Config.MaxIterations > 0 {
 		b.WriteString(fmt.Sprintf("Max iterations: %d\n", ctx.Config.MaxIterations))

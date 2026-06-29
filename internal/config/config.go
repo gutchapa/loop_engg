@@ -38,16 +38,35 @@ type AIConfig struct {
 	FilesInScope  []string         `json:"filesInScope,omitempty"` // file patterns to include in context
 }
 
+// GoalDefinition captures the project objective (qualitative + numeric).
+type GoalDefinition struct {
+	Summary     string   `json:"summary,omitempty"`     // one-line description
+	Qualitative []string `json:"qualitative,omitempty"` // soft, human-judged goals
+}
+
+// Guardrail is a must-pass check on every iteration (soft metric).
+type Guardrail struct {
+	Name  string `json:"name"`  // friendly name
+	Check string `json:"check"` // e.g. "exit_code == 0", "test_count == total_tests"
+}
+
+// HardMetric defines the numeric optimization target.
+type HardMetric struct {
+	Name      string           `json:"name"`
+	Direction string           `json:"direction"` // "higher" or "lower"
+	Target    TerminationCondition `json:"target"`
+}
+
 // Config represents the full experiment configuration.
 type Config struct {
-	MetricName    string            `json:"metricName,omitempty"`
-	MetricUnit    string            `json:"metricUnit,omitempty"`
-	Direction     string            `json:"direction,omitempty"`   // "higher" or "lower"
-	Command       string            `json:"command,omitempty"`     // default experiment command
-	MaxIterations int               `json:"maxIterations"`
-	WorkingDir    string            `json:"workingDir"`
-	Termination   TerminationConfig `json:"termination,omitempty"`
-	AI            *AIConfig         `json:"ai,omitempty"`          // AI agent config (optional)
+	Goal          *GoalDefinition   `json:"goal,omitempty"`          // qualitative goals
+	Guardrails    []Guardrail       `json:"guardrails,omitempty"`    // must-pass checks
+	Metric        *HardMetric       `json:"metric,omitempty"`        // hard numeric target
+	Command       string            `json:"command,omitempty"`       // experiment command
+	MaxIterations int               `json:"maxIterations"`           // safety cap
+	WorkingDir    string            `json:"workingDir"`              // project root
+	Termination   TerminationConfig `json:"termination,omitempty"`   // legacy support
+	AI            *AIConfig         `json:"ai,omitempty"`            // AI agent config
 }
 
 func DefaultConfig() Config {
@@ -55,6 +74,9 @@ func DefaultConfig() Config {
 	return Config{
 		MaxIterations: 20,
 		WorkingDir:    wd,
+		Metric: &HardMetric{
+			Direction: "lower",
+		},
 	}
 }
 

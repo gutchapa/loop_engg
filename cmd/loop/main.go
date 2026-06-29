@@ -186,16 +186,10 @@ func cmdAuto(args []string) {
 		workingDir = filepath.Join(cwd, workingDir)
 	}
 
-	// 3. Determine current run number
-	runNum := 0
+	// 3. Determine current run number — count runs since last config header
 	cfgDir := filepath.Dir(filepath.Join(workingDir, config.DefaultFileName))
 	logPath := filepath.Join(cfgDir, log.DefaultFileName)
-	lastRun, err := log.LastRun(logPath)
-	if err == nil {
-		runNum = lastRun + 1
-	} else {
-		runNum = 1
-	}
+	runNum := countRunsSinceLastConfig(logPath) + 1
 
 	// 4. Run the experiment command
 	opts := run.Options{
@@ -214,8 +208,9 @@ func cmdAuto(args []string) {
 
 	// 6. Find primary metric value
 	primaryName := "test_count" // default
-	if cfg.MetricName != "" {
-		primaryName = cfg.MetricName
+	hasHardMetric := cfg.Metric != nil && cfg.Metric.Name != ""
+	if hasHardMetric {
+		primaryName = cfg.Metric.Name
 	}
 
 	var primaryValue float64 = 0
@@ -229,7 +224,6 @@ func cmdAuto(args []string) {
 				primaryFound = true
 			}
 		}
-		// Store in extra metrics
 		if v, err := strconv.ParseFloat(m.Value, 64); err == nil {
 			extraMetrics[m.Name] = v
 		} else {
@@ -237,11 +231,24 @@ func cmdAuto(args []string) {
 		}
 	}
 
-	if !primaryFound {
+	if !primaryFound && hasHardMetric {
 		fmt.Fprintf(os.Stderr, "warning: primary metric '%s' not found in output\n", primaryName)
 	}
 
-	// 7. Check termination conditions
+	// 7. Check guardrails (soft metrics — must always pass)
+	guardrailsFailed := false
+	guardrailFailures := []string{}
+
+	for _, g := range cfg.Guardrails {
+		passed := evaluateGuardrail(g.Check, allMetrics)
+		if !passed {
+			guardrailsFailed = true
+			guardrailFailures = append(guardrailFailures, g.Name)
+			fmt.Fprintf(os.Stderr, "🛑 Guardrail FAILED: %s (%s)\n", g.Name, g.Check)
+		}
+	}
+
+	// 8. Check termination conditions
 	terminated := false
 	reason := ""
 
@@ -255,7 +262,30 @@ func cmdAuto(args []string) {
 		reason = fmt.Sprintf("max iterations reached (%d)", maxIters)
 	}
 
-	// Check metric-based termination conditions
+	// Also check the hard metric target
+	if !terminated && hasHardMetric && cfg.Metric.Target.Metric != "" {
+		cond := cfg.Metric.Target
+		var metricValue float64
+		found := false
+		for _, m := range allMetrics {
+			if m.Name == cond.Metric {
+				if v, err := strconv.ParseFloat(m.Value, 64); err == nil {
+					metricValue = v
+					found = true
+				}
+				break
+			}
+		}
+		if found {
+			condMet := evaluateCondition(cond.Operator, metricValue, cond.Value)
+			if condMet {
+				terminated = true
+				reason = fmt.Sprintf("%s %s %.0f (got %.0f)", cond.Metric, cond.Operator, cond.Value, metricValue)
+			}
+		}
+	}
+
+	// Check legacy metric-based termination conditions
 	if !terminated {
 		for _, cond := range cfg.Termination.Conditions {
 			var metricValue float64
@@ -303,11 +333,14 @@ func cmdAuto(args []string) {
 
 	// 8. Determine status
 	status := "discard"
-	if result.ExitCode == 0 {
-		status = "keep"
-	} else {
+	if guardrailsFailed {
+		status = "crash"
+		reason = fmt.Sprintf("guardrail(s) failed: %s", strings.Join(guardrailFailures, ", "))
+	} else if result.ExitCode != 0 {
 		status = "crash"
 		reason = fmt.Sprintf("exit code %d", result.ExitCode)
+	} else {
+		status = "keep"
 	}
 
 	// 9. Log the result
@@ -782,4 +815,96 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// evaluateCondition checks if two values satisfy an operator.
+func evaluateCondition(op string, actual, target float64) bool {
+	switch op {
+	case ">=":
+		return actual >= target
+	case "<=":
+		return actual <= target
+	case "==":
+		return actual == target
+	case ">":
+		return actual > target
+	case "<":
+		return actual < target
+	default:
+		return false
+	}
+}
+
+// evaluateGuardrail checks a simple guardrail expression like "exit_code == 0" or "test_count == total_tests".
+func evaluateGuardrail(check string, metrics []metric.Metric) bool {
+	check = strings.TrimSpace(check)
+
+	// Parse: METRIC_A OPERATOR METRIC_B_OR_NUMBER
+	// e.g. "exit_code == 0", "test_count == total_tests"
+	parts := strings.Fields(check)
+	if len(parts) < 3 {
+		return false
+	}
+
+	leftName := parts[0]
+	op := parts[1]
+	rightExpr := parts[2]
+
+	// Find left metric
+	var leftVal float64
+	foundLeft := false
+	for _, m := range metrics {
+		if m.Name == leftName {
+			if v, err := strconv.ParseFloat(m.Value, 64); err == nil {
+				leftVal = v
+				foundLeft = true
+			}
+			break
+		}
+	}
+	if !foundLeft {
+		return false
+	}
+
+	// Parse right side (either a number or another metric name)
+	var rightVal float64
+	if v, err := strconv.ParseFloat(rightExpr, 64); err == nil {
+		rightVal = v
+	} else {
+		// Try as a metric name
+		foundRight := false
+		for _, m := range metrics {
+			if m.Name == rightExpr {
+				if v, err := strconv.ParseFloat(m.Value, 64); err == nil {
+					rightVal = v
+					foundRight = true
+				}
+				break
+			}
+		}
+		if !foundRight {
+			return false
+		}
+	}
+
+	return evaluateCondition(op, leftVal, rightVal)
+}
+
+// countRunsSinceLastConfig counts experiment entries since the last config header.
+func countRunsSinceLastConfig(logPath string) int {
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return 0
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	count := 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(lines[i], `"type":"config"`) {
+			break
+		}
+		if strings.Contains(lines[i], `"type":"experiment"`) {
+			count++
+		}
+	}
+	return count
 }
