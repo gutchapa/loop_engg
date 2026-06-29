@@ -12,6 +12,7 @@ import (
 
 	"github.com/gutchapa/loop/internal/bridge"
 	"github.com/gutchapa/loop/internal/config"
+	"github.com/gutchapa/loop/internal/learn"
 	"github.com/gutchapa/loop/internal/llm"
 	"github.com/gutchapa/loop/internal/log"
 	"github.com/gutchapa/loop/internal/mcp"
@@ -44,6 +45,8 @@ func main() {
 		cmdMCP(os.Args[2:])
 	case "ai":
 		cmdAI(os.Args[2:])
+	case "learn":
+		cmdLearn(os.Args[2:])
 	case "version":
 		fmt.Printf("loop v%s\n", version)
 	case "help", "--help", "-h":
@@ -88,6 +91,12 @@ Usage:
         Requires an LLM API key (config file, env var, or --api-key).
         Supported providers: grok, deepseek, openai, ollama
         Example: loop ai --provider grok --api-key xai-...
+
+  loop learn [--distill] [--anti] [--infra]
+        Inspect or distill the persistent knowledge store (self-learning memory).
+        --distill: extract patterns from experiment log
+        --anti:    show anti-patterns to avoid
+        --infra:   show known infrastructure fixes
 
   loop check [--dir <path>]
         Pre-check project state.
@@ -512,6 +521,23 @@ func cmdAI(args []string) {
 		fmt.Fprintf(os.Stderr, "warning: could not load context: %v\n", err)
 	}
 
+	// Load knowledge store — the agent's memory across sessions
+	store, err := learn.Load(workingDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: knowledge store load failed: %v\n", err)
+		store, _ = learn.Load(workingDir) // try fresh
+	}
+	fmt.Fprintf(os.Stderr, "🧠 Knowledge store: %d entries loaded\n", len(store.Entries))
+
+	// Distill patterns from past experiments
+	logPath := filepath.Join(workingDir, "autoresearch.jsonl")
+	if _, err := os.Stat(logPath); err == nil {
+		_ = store.DistillFromLog(logPath)
+	}
+
+	// Inject knowledge into context for the LLM
+	ctx.KnowledgeSummary = store.Summary()
+
 	maxIter := 10
 	if aiCfg != nil && aiCfg.MaxIterations > 0 {
 		maxIter = aiCfg.MaxIterations
@@ -925,6 +951,71 @@ func evaluateGuardrail(check string, metrics []metric.Metric) bool {
 	}
 
 	return evaluateCondition(op, leftVal, rightVal)
+}
+
+// cmdLearn displays or queries the knowledge store.
+func cmdLearn(args []string) {
+	distill := false
+	showAnti := false
+	showInfra := false
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--distill":
+			distill = true
+		case "--anti":
+			showAnti = true
+		case "--infra":
+			showInfra = true
+		}
+	}
+
+	wd, _ := os.Getwd()
+	store, err := learn.Load(wd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if distill {
+		logPath := filepath.Join(wd, "autoresearch.jsonl")
+		if _, err := os.Stat(logPath); err == nil {
+			fmt.Println("🧠 Distilling patterns from experiment log...")
+			if err := store.DistillFromLog(logPath); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("✅ Knowledge store: %d entries\n\n", len(store.Entries))
+		} else {
+			fmt.Println("No experiment log found — nothing to distill.")
+		}
+	}
+
+	if showAnti {
+		fmt.Println("🚫 Anti-Patterns (avoid these):")
+		for _, e := range store.AntiPatterns() {
+			fmt.Printf("  • %s (success rate: %.0f%%, hits: %d)\n", e.Title, e.SuccessRate*100, e.HitCount)
+		}
+		if len(store.AntiPatterns()) == 0 {
+			fmt.Println("  (none yet)")
+		}
+		fmt.Println()
+	}
+
+	if showInfra {
+		fmt.Println("🔧 Known Infrastructure Fixes:")
+		for _, e := range store.Query("infra_fix", "", nil) {
+			fmt.Printf("  • %s: %s\n", e.Title, e.Fix)
+		}
+		if len(store.Query("infra_fix", "", nil)) == 0 {
+			fmt.Println("  (none yet)")
+		}
+		fmt.Println()
+	}
+
+	if !distill && !showAnti && !showInfra {
+		fmt.Print(store.Summary())
+	}
 }
 
 // countRunsSinceLastConfig counts experiment entries since the last config header.

@@ -13,11 +13,12 @@ import (
 
 // ProjectContext holds the full context for the AI agent.
 type ProjectContext struct {
-	Rules     string // from autoresearch.md
-	Config    config.Config
-	Files     []FileEntry  // files in scope with their content
-	Metrics   string       // recent metrics from log
-	Objective string       // parsed objective from rules
+	Rules            string // from autoresearch.md
+	Config           config.Config
+	Files            []FileEntry // files in scope with their content
+	Metrics          string      // recent metrics from log
+	Objective        string      // parsed objective from rules
+	KnowledgeSummary string      // from learn.KnowledgeStore.Summary()
 }
 
 // FileEntry holds a file's path and content.
@@ -114,6 +115,18 @@ Available tools:
 - QUALITATIVE goals: subjective — use your judgment
 
 ## Rules
+- Always explore before writing code
+- Write clean, tested code
+- Run tests after every change
+- If tests fail, fix them before moving on
+- Never break a guardrail
+- End your turn with plain text analysis when done acting
+
+` + "## Past Learnings (Memory)" + `
+
+` + ctx.KnowledgeSummary + `
+
+## Rules (continued)
 - Always explore before writing code
 - Write clean, tested code
 - Run tests after every change
