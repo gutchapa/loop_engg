@@ -16,13 +16,14 @@ type Experiment struct {
 	Run         int               `json:"run,omitempty"`
 	Commit      string            `json:"commit,omitempty"`
 	Metric      float64           `json:"metric,omitempty"`
-	Metrics     map[string]any   `json:"metrics,omitempty"`
+	MetricName  string            `json:"metricName,omitempty"`
+	Metrics     map[string]any    `json:"metrics,omitempty"`
 	Status      string            `json:"status,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Timestamp   int64             `json:"timestamp,omitempty"`
 	Segment     int               `json:"segment,omitempty"`
 	Confidence  *float64          `json:"confidence,omitempty"`
-	ASI         map[string]any   `json:"asi,omitempty"`
+	ASI         map[string]any    `json:"asi,omitempty"`
 }
 
 // ConfigHeader represents the initial config entry in the JSONL file.

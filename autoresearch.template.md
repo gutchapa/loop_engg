@@ -1,76 +1,93 @@
 # Autoresearch: [Your Project Name]
 
 ## Objective
-[Describe what you're building. Example: "Build a high-throughput Go HTTP proxy with sub-millisecond P99 latency."]
+[Describe what you're optimizing. Example: "Reduce P99 latency of the payment API to under 50ms."]
 
-## Tools
-| Tool | Purpose |
-|------|---------|
-| `read` | Examine source files |
-| `bash` | Run shell commands |
-| `edit` | Make precise code changes |
-| `write` | Create new files |
-| `init_experiment` | Initialize session |
-| `run_experiment` | Run the benchmark |
-| `log_experiment` | Record result |
+## How It Works
+The `loop` binary (Go CLI) is the orchestrator:
+
+1. **Configure** — set `command`, `metricName`, and `termination` in `autoresearch.config.json`
+2. **Run** — `./loop auto` executes one iteration:
+   - Runs your benchmark command
+   - Parses `METRIC name=value` lines from output
+   - Checks termination conditions
+   - Logs result to `autoresearch.jsonl`
+   - Outputs `✅ LOOP COMPLETE` (target met) or `🔄 LOOP CONTINUE` (keep iterating)
+
+## Setup
+
+```bash
+# 1. Initialize experiment session (writes config header to autoresearch.jsonl)
+./loop init "Reduce API latency" "p99_latency_ms" --unit "ms" --direction "lower"
+
+# 2. Edit autoresearch.config.json with your command and termination conditions:
+#    {
+#      "metricName": "p99_latency_ms",
+#      "command": "go test -bench=. -benchtime=1x ./internal/api",
+#      "termination": {
+#        "maxIterations": 30,
+#        "conditions": [
+#          { "metric": "p99_latency_ms", "operator": "<=", "value": 50 }
+#        ]
+#      }
+#    }
+
+# 3. The AI writes/improves code, then:
+./loop auto
+
+# 4. Read the verdict:
+#    ✅ LOOP COMPLETE: p99_latency_ms <= 50 (got 42)   → DONE
+#    🔄 LOOP CONTINUE: conditions not yet met            → iterate again
+```
 
 ## Metrics
 
 ### Primary (optimization target)
 | Metric | Unit | Direction | Description |
 |--------|------|-----------|-------------|
-| [your_metric] | [ms / µs / tx/s / kb / —] | [lower / higher] | [what it measures] |
+| [your_metric] | [ms/µs/tx/s/kb/—] | [lower/higher] | [what it measures] |
 
-> ⚠️ Replace `[your_metric]` above with the actual metric name. Delete this row.
+> ⚠️ Replace `[your_metric]` above. Must match `metricName` in `autoresearch.config.json`.
 
-### Secondary (monitoring, not optimization targets)
-| Metric | Unit | Target | Description |
-|--------|------|--------|-------------|
-| build_ok | 0/1 | must stay 1 | Build passes without errors |
-| [other_metric] | [unit] | [target] | [description] |
-
-### Example metrics for common domains
-| Domain | Primary Metric | Unit | Direction |
-|--------|---------------|------|-----------|
-| API server | P99 latency | ms | lower |
-| Payment processing | tx_per_sec | tx/s | higher |
-| Log parser | lines_per_sec | lines/s | higher |
-| Image pipeline | process_time | µs | lower |
-| Route optimizer | compute_time | ms | lower |
-| Compiler | build_time | s | lower |
-| ML training | val_accuracy | % | higher |
-| Binary size | binary_size | kb | lower |
+### Secondary (monitoring only)
+| Metric | Description |
+|--------|-------------|
+| `exit_code` | Must be 0 (build/test pass) |
+| `duration_ms` | Benchmark execution time |
 
 ## Termination Conditions
+Defined in `autoresearch.config.json` under `termination`:
 
-> ⚠️ DELETE THE OPTIONS THAT DON'T APPLY. Keep the ones relevant to your project.
+```json
+"termination": {
+  "maxIterations": 30,
+  "conditions": [
+    { "metric": "p99_latency_ms", "operator": "<=", "value": 50 }
+  ]
+}
+```
 
-### Hard stops — loop ends immediately when any is true:
-1. **User says to stop** — any variant of "stop", "done", "enough"
-2. **Project delivered** — the feature/artifact is in the user's hands
-3. **No more requests** — all asked-for features are complete
-4. **Ideas backlog empty** — nothing left worth exploring
-5. **Hit max iterations** — configured in autoresearch.config.json
+**Operators**: `>=`, `<=`, `==`, `>`, `<`
 
-### Soft guard — stop unless there's a real need:
-- If tests pass, build passes, no bugs, no user requests, no backlog ideas → **STOP**. Do not invent busywork.
-- The metric is a quality proxy, not a score to grind.
+Multiple conditions = AND (all must be met).
 
-### Starting the experiment loop
+The `loop auto` command automatically checks these and outputs the verdict.
 
-```bash
-# Initialize
-./loop init "[Experiment Name]" [primary_metric] --unit [unit] --direction [lower|higher]
+## Output Protocol
+Your benchmark command must output `METRIC name=value` lines:
+```
+METRIC p99_latency_ms=42.5
+METRIC p50_latency_ms=12.3
+```
 
-# Baseline
-./loop run "go build ./... && go test ./... -count=1"
-
-# Each iteration: implement change, then:
-./loop run "go build ./... && go test ./... -count=1"
+Built-in METRIC lines from `loop auto`:
+```
+METRIC exit_code=0
+METRIC duration_ms=3211
 ```
 
 ## Files in Scope
-[List files and directories the agent is allowed to modify]
+[List files the agent is allowed to modify]
 - `cmd/` — CLI entry point
 - `internal/` — core packages
 - `pkg/` — public API
@@ -80,12 +97,10 @@
 ## Off Limits
 [List files the agent must never touch]
 - `vendor/`
-- `node_modules/` (if applicable)
 - `.git/`
 - `third_party/`
 
-## How to Run
-```bash
-./loop run "your benchmark command"
-```
-Outputs `METRIC name=value` lines. The agent parses these automatically.
+## Hard Stop
+- If `loop auto` says `LOOP COMPLETE` — the goal is met, stop
+- If user says to stop — stop immediately
+- If no more meaningful optimizations to try — stop

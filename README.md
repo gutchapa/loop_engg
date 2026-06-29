@@ -1,96 +1,163 @@
 # 🧪 Loop Engineering
 
 > *Build software through autonomous, self-correcting experiment loops.*
-> Written in **Go** — single binary, zero dependencies, cross-platform.
+> **Pure Go** — single binary, zero dependencies, cross-platform. No bash/Python/Node.
 
-## What's Inside
+## Philosophy
 
-| File | Purpose |
-|------|---------|
-| [`LOOP_ENGINEERING.md`](./LOOP_ENGINEERING.md) | Full methodology — principles, loop diagram, tooling, ASI, real-world results |
-| [`cmd/loop/main.go`](./cmd/loop/main.go) | **`loop` CLI** — the experiment engine (Go, single binary) |
-| [`internal/`](./internal/) | Go packages: config, run, metric, log |
-| [`examples/`](./examples/) | **6 industry demo projects** — ready-to-run benchmarks |
-| [`autoresearch.config.json`](./autoresearch.config.json) | Loop configuration (working dir, max iterations) |
-| [`autoresearch.ideas.md`](./autoresearch.ideas.md) | Ideas backlog with stop-signal guards |
-| [`autoresearch.template.md`](./autoresearch.template.md) | **Bring your own rules** — fill in your metrics, termination conditions, scope |
+**The `loop` binary is the orchestrator.** It reads config, runs benchmarks, checks termination conditions, and decides when to stop. The AI agent writes code; `loop` evaluates it.
 
-## The `loop` CLI (Updated 2026-06-29)
+## Quick Start
 
 ```bash
-# Build the CLI (now with security hardening + clean build)
 go build -o loop ./cmd/loop/
 
-# Initialize a new experiment session
-./loop init "Optimize validation" tx_per_sec --unit "tx/s" --direction higher
+# Initialize a session
+./loop init "Optimize latency" p99_latency_ms --unit "ms" --direction lower
 
-# Run a benchmark (timed + METRIC parsing)
-./loop run "go test -bench=BenchmarkBatchProcess -benchmem -count=3" --timeout 30
+# Edit autoresearch.config.json:
+#   {
+#     "metricName": "p99_latency_ms",
+#     "command": "go test -bench=. -benchtime=10x ./api/",
+#     "termination": {
+#       "conditions": [{"metric": "p99_latency_ms", "operator": "<=", "value": 50}]
+#     }
+#   }
 
-# Project health check
-./loop check
-
-# Version
-./loop version
+# Run one iteration — loop auto handles everything:
+./loop auto
+# → ✅ LOOP COMPLETE: target reached
+# → 🔄 LOOP CONTINUE: keep iterating
 ```
 
-### METRIC Protocol
+## Commands
 
-The CLI outputs structured `METRIC name=value` lines that the agent parses:
+| Command | What it does |
+|---------|-------------|
+| `loop init <name> <metric> [--unit <u>] [--direction <d>]` | Initialize experiment session |
+| `loop run <command> [--timeout <s>]` | Run a command, time it, capture METRIC lines |
+| **`loop auto`** | **Run one iteration: execute command → parse metrics → check termination → log → verdict** |
+| `loop bench <pkg> [--benchtime <d>] [--count <n>]` | Run Go benchmarks, output as METRIC lines |
+| `loop check` | Validate project health |
+| `loop version` | Print version |
 
+## METRIC Protocol
+
+Your benchmark must output `METRIC name=value` lines:
+
+```
+METRIC p99_latency_ms=42.5
+METRIC throughput_tps=18500
+```
+
+Built-in METRIC lines from `loop`:
 ```
 METRIC exit_code=0
-METRIC duration_ms=1240
-METRIC duration_s=1.240
+METRIC duration_ms=3211
 METRIC timed_out=0
-METRIC build_ok=1
-METRIC bench_items_per_sec=85000
 ```
 
-Any `METRIC` lines from the child command's output are forwarded automatically.
+## `loop auto` — The Orchestrator
+
+Reads `autoresearch.config.json`:
+
+```json
+{
+  "metricName": "test_count",
+  "command": "npx vitest run --reporter=json | python3 -c \"...\"",
+  "termination": {
+    "maxIterations": 50,
+    "conditions": [
+      { "metric": "test_count", "operator": ">=", "value": 74 }
+    ]
+  }
+}
+```
+
+On each run it:
+1. Executes the command
+2. Parses all `METRIC` lines
+3. Checks every termination condition
+4. Logs to `autoresearch.jsonl`
+5. Outputs verdict: **`✅ LOOP COMPLETE`** or **`🔄 LOOP CONTINUE`**
+
+## `loop bench` — Go Benchmark Runner
+
+Runs `go test -bench` and converts results to METRIC lines:
+
+```bash
+./loop bench ./examples/fintech-pay/ --benchtime 100x
+```
+
+Output:
+```
+METRIC exit_code=0
+METRIC duration_ms=986
+METRIC BenchmarkLuhnCheck_ns_per_op=35.84
+METRIC BenchmarkProcess_ns_per_op=123.3
+```
 
 ## Industry Examples
 
-Pick an example that matches your domain and run it:
-
-| Industry | Example | Optimization Target |
-|----------|---------|-------------------|
-| 💳 **FinTech** | `examples/fintech-pay/` | Max transactions/sec through Luhn validation pipeline |
-| 🏥 **Healthcare** | `examples/healthcare-search/` | Min search latency (ms) for patient records |
-| 🛒 **E-Commerce** | `examples/ecommerce-catalog/` | Min filter+sort latency (µs) for product catalog |
-| 🔧 **DevOps** | `examples/devops-logparse/` | Max lines/sec parsed from unstructured logs |
-| 🎬 **Media** | `examples/media-thumb/` | Min processing time per thumbnail (µs) |
-| 🚚 **Logistics** | `examples/logistics-route/` | Min route computation time with quality constraints |
+Each example has `autoresearch.config.json` ready — just `cd` and run:
 
 ```bash
-# Try one out
-cd examples/fintech-pay
-go test -bench=. -benchmem -count=3
-go test -v -count=1 ./...
+cd /Users/gutchapa/loop_engg
+
+# FinTech — Luhn validation throughput
+./loop bench ./examples/fintech-pay/ --benchtime 100x
+
+# Healthcare — patient record search
+./loop bench ./examples/healthcare-search/ --benchtime 100x
+
+# E-Commerce — product catalog filter+sort
+./loop bench ./examples/ecommerce-catalog/ --benchtime 100x
+
+# DevOps — log parsing throughput
+./loop bench ./examples/devops-logparse/ --benchtime 100x
+
+# Media — thumbnail generation
+./loop bench ./examples/media-thumb/ --benchtime 100x
+
+# Logistics — route optimization
+./loop bench ./examples/logistics-route/ --benchtime 100x
 ```
 
-## Use It on Your Own Project (Updated)
+Or use `loop auto` with an example's config:
+```bash
+cp examples/fintech-pay/autoresearch.config.json .
+./loop auto
+```
+
+## Use on Your Own Project
 
 ```bash
-# 1. Build (now security-hardened + warning on shell exec)
+# 1. Build
 go build -o loop ./cmd/loop/
 
-# 2. Copy core files to your project
-cp loop autoresearch.config.json autoresearch.template.md ../your-new-project/
-cd ../your-new-project
-mv autoresearch.template.md autoresearch.md
+# 2. Copy to your project
+cp loop autoresearch.config.json autoresearch.template.md ../your-project/
+cd ../your-project
 
-# 3. Edit autoresearch.md with your rules, metric, and stop signals
-# 4. Start the loop
-./loop init "Baseline" test_count --direction higher
-./loop run "go test ./... -count=1"
+# 3. Edit autoresearch.config.json with your command + termination
+# 4. Initialize
+./loop init "My Opt" my_metric --direction lower
+
+# 5. Code → auto → code → auto → done
+./loop auto
 ```
 
-**Security Note**: The `run` command uses `sh -c`. Only use it with trusted benchmark commands. Never pass raw user input.
+## Contents
 
-## License
-
-MIT
+| File | Purpose |
+|------|---------|
+| [`LOOP_ENGINEERING.md`](./LOOP_ENGINEERING.md) | Full methodology — principles, loop diagram, ASI |
+| [`cmd/loop/main.go`](./cmd/loop/main.go) | `loop` CLI (Go, single binary) |
+| [`internal/`](./internal/) | Go packages: config, run, metric, log |
+| [`examples/`](./examples/) | 6 industry demo projects with configs |
+| [`autoresearch.config.json`](./autoresearch.config.json) | Config template |
+| [`autoresearch.template.md`](./autoresearch.template.md) | Bring your own rules template |
+| [`autoresearch.ideas.md`](./autoresearch.ideas.md) | Ideas backlog |
 
 ## License
 

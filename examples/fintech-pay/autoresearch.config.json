@@ -1,0 +1,14 @@
+{
+  "metricName": "BenchmarkLuhnCheck_ns_per_op",
+  "metricUnit": "ns/op",
+  "direction": "lower",
+  "command": "./loop bench ./examples/fintech-pay/ --benchtime 100x",
+  "maxIterations": 30,
+  "workingDir": ".",
+  "termination": {
+    "maxIterations": 30,
+    "conditions": [
+      { "metric": "BenchmarkLuhnCheck_ns_per_op", "operator": "<=", "value": 30 }
+    ]
+  }
+}

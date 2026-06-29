@@ -1,4 +1,14 @@
 {
-  "maxIterations": 20,
-  "workingDir": "."
+  "metricName": "",
+  "metricUnit": "",
+  "direction": "higher",
+  "command": "",
+  "maxIterations": 50,
+  "workingDir": ".",
+  "termination": {
+    "maxIterations": 50,
+    "conditions": [
+      { "metric": "YOUR_METRIC_NAME", "operator": ">=", "value": 0 }
+    ]
+  }
 }

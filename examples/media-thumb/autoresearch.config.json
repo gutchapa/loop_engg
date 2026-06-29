@@ -1,0 +1,14 @@
+{
+  "metricName": "BenchmarkResizeImage_ns_per_op",
+  "metricUnit": "ns/op",
+  "direction": "lower",
+  "command": "./loop bench ./examples/media-thumb/ --benchtime 100x",
+  "maxIterations": 30,
+  "workingDir": ".",
+  "termination": {
+    "maxIterations": 30,
+    "conditions": [
+      { "metric": "BenchmarkResizeImage_ns_per_op", "operator": "<=", "value": 5000 }
+    ]
+  }
+}

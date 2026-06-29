@@ -10,9 +10,28 @@ import (
 
 const DefaultFileName = "autoresearch.config.json"
 
+// TerminationCondition defines a single termination rule.
+type TerminationCondition struct {
+	Metric   string  `json:"metric"`             // metric name from METRIC lines
+	Operator string  `json:"operator"`           // >=, <=, ==, >, <
+	Value    float64 `json:"value"`              // threshold value
+}
+
+// TerminationConfig defines when the experiment loop should stop.
+type TerminationConfig struct {
+	MaxIterations int                   `json:"maxIterations,omitempty"`
+	Conditions    []TerminationCondition `json:"conditions,omitempty"`
+}
+
+// Config represents the full experiment configuration.
 type Config struct {
-	MaxIterations int    `json:"maxIterations"`
-	WorkingDir    string `json:"workingDir"`
+	MetricName  string            `json:"metricName,omitempty"`
+	MetricUnit  string            `json:"metricUnit,omitempty"`
+	Direction   string            `json:"direction,omitempty"`   // "higher" or "lower"
+	Command     string            `json:"command,omitempty"`     // default experiment command
+	MaxIterations int             `json:"maxIterations"`
+	WorkingDir  string            `json:"workingDir"`
+	Termination TerminationConfig `json:"termination,omitempty"`
 }
 
 func DefaultConfig() Config {
