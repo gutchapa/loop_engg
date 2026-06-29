@@ -10,5 +10,15 @@
     "conditions": [
       { "metric": "YOUR_METRIC_NAME", "operator": ">=", "value": 0 }
     ]
+  },
+  "ai": {
+    "maxIterations": 10,
+    "filesInScope": ["*.go", "*.ts", "*.tsx", "*.json", "*.md"],
+    "provider": {
+      "provider": "grok",
+      "model": "grok-4-20-0309-reasoning",
+      "endpoint": "https://api.x.ai/v1",
+      "apiKey": ""
+    }
   }
 }

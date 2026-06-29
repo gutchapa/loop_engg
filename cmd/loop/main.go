@@ -11,12 +11,16 @@ import (
 	"time"
 
 	"github.com/gutchapa/loop/internal/config"
+	"github.com/gutchapa/loop/internal/llm"
 	"github.com/gutchapa/loop/internal/log"
+	"github.com/gutchapa/loop/internal/mcp"
 	"github.com/gutchapa/loop/internal/metric"
+	"github.com/gutchapa/loop/internal/planner"
 	"github.com/gutchapa/loop/internal/run"
+	"github.com/gutchapa/loop/internal/scanner"
 )
 
-const version = "1.1.0"
+const version = "1.2.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -35,6 +39,10 @@ func main() {
 		cmdBench(os.Args[2:])
 	case "check":
 		cmdCheck(os.Args[2:])
+	case "mcp":
+		cmdMCP(os.Args[2:])
+	case "ai":
+		cmdAI(os.Args[2:])
 	case "version":
 		fmt.Printf("loop v%s\n", version)
 	case "help", "--help", "-h":
@@ -47,35 +55,41 @@ func main() {
 }
 
 func usage() {
-	fmt.Print(`Loop Engineering CLI — autonomous experiment loop tooling.
+	fmt.Print(`Loop Engineering CLI — autonomous AI coding agent + experiment loop tooling.
 
 Usage:
   loop init <name> <metric_name> [--unit <unit>] [--direction <lower|higher>]
-        Initialize a new experiment session. Writes a config header to
-        autoresearch.jsonl.
+        Initialize a new experiment session.
 
   loop run <command> [--timeout <seconds>]
-        Run a shell command, measure wall-clock duration, capture output.
-        Outputs METRIC lines for duration, exit_code, and any METRIC
-        lines found in the command's own output.
+        Run a shell command with timing and METRIC output.
 
   loop auto [--timeout <seconds>]
-        Run one experiment iteration autonomously:
-          1. Load autoresearch.config.json for command + termination rules
-          2. Execute the command with timing
-          3. Parse primary metric from METRIC lines
-          4. Check termination conditions (metric thresholds, max iterations)
-          5. Log result to autoresearch.jsonl
-          6. Exit with verdict: "LOOP COMPLETE" or "LOOP CONTINUE"
+        Run one autonomous experiment iteration from config.
 
   loop bench <package> [--benchtime <duration>] [--count <n>]
-        Run Go benchmarks for a package and output results as METRIC lines.
-        Parses standard Go benchmark output (ns/op, allocs/op, B/op).
-        Example: loop bench ./examples/fintech-pay/ --benchtime 100x
+        Run Go benchmarks and output METRIC lines.
+
+  loop mcp
+        Run as MCP (Model Context Protocol) server over stdio.
+        Exposes tools (read_file, write_file, run_command, etc.) for any
+        MCP-compatible LLM client (Claude Code, Cursor, Cline, etc.).
+        Connect via: claude mcp add -- stdio -- /path/to/loop mcp
+
+  loop ai [--timeout <seconds>] [--provider <name>] [--model <name>]
+        Run as a self-contained AI agent. Reads autoresearch.md and
+        autoresearch.config.json, then autonomously:
+          1. OBSERVE — read project files, run tests, get metrics
+          2. ORIENT — analyze state via LLM
+          3. DECIDE — plan code changes
+          4. ACT — write files, run tests, verify
+          5. LOOP — repeat until termination conditions met
+        Requires an LLM API key (config file, env var, or --api-key).
+        Supported providers: grok, deepseek, openai, ollama
+        Example: loop ai --provider grok --api-key xai-...
 
   loop check [--dir <path>]
-        Pre-check a project: validate package.json exists, config loads,
-        and log file is readable. Exits 0 on success.
+        Pre-check project state.
 
   loop version
         Print version and exit.
@@ -342,6 +356,183 @@ func cmdAuto(args []string) {
 	}
 }
 
+// cmdMCP runs the MCP server over stdio.
+func cmdMCP(args []string) {
+	mcpServer := mcp.NewServer()
+	mcpServer.Serve()
+}
+
+// cmdAI runs the self-contained AI agent.
+func cmdAI(args []string) {
+	// Parse flags
+	var provider, model, apiKey string
+	timeout := 120 * time.Second
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--provider":
+			if i+1 < len(args) {
+				i++
+				provider = args[i]
+			}
+		case "--model":
+			if i+1 < len(args) {
+				i++
+				model = args[i]
+			}
+		case "--api-key":
+			if i+1 < len(args) {
+				i++
+				apiKey = args[i]
+			}
+		case "--timeout":
+			if i+1 < len(args) {
+				i++
+				if d, err := time.ParseDuration(args[i] + "s"); err == nil {
+					timeout = d
+				}
+			}
+		}
+	}
+
+	// Load config
+	cfg, err := config.Load("")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Determine working directory
+	workingDir := cfg.WorkingDir
+	if workingDir == "" {
+		wd, _ := os.Getwd()
+		workingDir = wd
+	} else if !filepath.IsAbs(workingDir) {
+		cwd, _ := os.Getwd()
+		workingDir = filepath.Join(cwd, workingDir)
+	}
+
+	// Resolve provider/model/endpoint from config or flags
+	aiCfg := cfg.AI
+	ep := ""
+	if aiCfg != nil {
+		if provider == "" && aiCfg.Provider.Provider != "" {
+			provider = aiCfg.Provider.Provider
+		}
+		if model == "" && aiCfg.Provider.Model != "" {
+			model = aiCfg.Provider.Model
+		}
+		if aiCfg.Provider.Endpoint != "" {
+			ep = aiCfg.Provider.Endpoint
+		}
+		if aiCfg.Provider.APIKey != "" && apiKey == "" {
+			apiKey = aiCfg.Provider.APIKey
+		}
+	}
+
+	// Fall back to env var for API key
+	if apiKey == "" {
+		apiKey = os.Getenv("LOOP_API_KEY")
+	}
+
+	// If provider is set but no endpoint, use defaults
+	if provider != "" && ep == "" {
+		defEp, defModel := llm.ProviderDefaults(provider)
+		if defEp != "" {
+			ep = defEp
+			if model == "" {
+				model = defModel
+			}
+		}
+	}
+
+	if ep == "" || model == "" {
+		fmt.Fprintf(os.Stderr, "error: no AI provider configured. Set in autoresearch.config.json,\n")
+		fmt.Fprintf(os.Stderr, "  or use flags: --provider <name> --model <name> --api-key <key>\n")
+		fmt.Fprintf(os.Stderr, "  Supported: grok, deepseek, openai, ollama\n")
+		fmt.Fprintf(os.Stderr, "  Or set LOOP_API_KEY env var.\n")
+		os.Exit(1)
+	}
+
+	// Run security scan on the project before starting
+	fmt.Fprintf(os.Stderr, "🔍 Scanning for sensitive data before AI loop...\n")
+	findings, err := scanner.ScanDir(workingDir, []string{".git", "node_modules", "vendor", ".next"})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: scan error: %v\n", err)
+	}
+	hasCritical := scanner.PrintFindings(findings)
+	if hasCritical {
+		abort := scanner.ConfirmScan(findings)
+		if abort {
+			fmt.Fprintf(os.Stderr, "🛑 Aborted by user — sensitive data detected\n")
+			os.Exit(1)
+		}
+	}
+
+	// Initialize LLM client
+	client := llm.NewClient(ep, apiKey, model)
+
+	// Load project context
+	ctx, err := planner.LoadContext(workingDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load context: %v\n", err)
+	}
+
+	maxIter := 10
+	if aiCfg != nil && aiCfg.MaxIterations > 0 {
+		maxIter = aiCfg.MaxIterations
+	}
+	if cfg.MaxIterations > 0 && cfg.MaxIterations < maxIter {
+		maxIter = cfg.MaxIterations
+	}
+
+	fmt.Fprintf(os.Stderr, "🤖 AI Agent starting: %s (%s)\n", model, ep)
+	fmt.Fprintf(os.Stderr, "📋 Objective: %s\n", ctx.Objective)
+	fmt.Fprintf(os.Stderr, "🔄 Max iterations: %d\n\n", maxIter)
+
+	// Main AI loop
+	for iter := 1; iter <= maxIter; iter++ {
+		fmt.Fprintf(os.Stderr, "\n=== Iteration %d/%d ===\n", iter, maxIter)
+
+		// Build prompt
+		systemPrompt := ctx.BuildSystemPrompt()
+		userPrompt := ctx.BuildUserPrompt()
+
+		// Call LLM
+		fmt.Fprintf(os.Stderr, "🤔 Calling LLM...\n")
+		response, err := client.SimpleChat(systemPrompt, userPrompt)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "❌ LLM error: %v\n", err)
+			continue
+		}
+
+		fmt.Fprintf(os.Stderr, "📝 LLM response:\n%s\n", truncate(response, 500))
+
+		// Run tests after LLM response to check state
+		if cfg.Command != "" {
+			fmt.Fprintf(os.Stderr, "\n🧪 Running test command...\n")
+			opts := run.Options{Timeout: timeout, Dir: workingDir}
+			result := run.Run(cfg.Command, opts)
+
+			allMetrics := metric.ParseAll(result.Combined)
+			for _, m := range allMetrics {
+				fmt.Fprintf(os.Stderr, "   METRIC %s=%s\n", m.Name, m.Value)
+			}
+
+			if result.ExitCode != 0 {
+				fmt.Fprintf(os.Stderr, "⚠️  Tests exited with code %d\n", result.ExitCode)
+				fmt.Fprintf(os.Stderr, "%s\n", truncate(result.Combined, 1000))
+			}
+			_ = result // LLM will see output next iteration
+		}
+
+		// Refresh context for next iteration
+		ctx, _ = planner.LoadContext(workingDir)
+	}
+
+	fmt.Fprintf(os.Stderr, "\n✅ AI LOOP COMPLETE (%d iterations)\n", maxIter)
+}
+
 // cmdBench runs Go benchmarks and outputs METRIC lines.
 func cmdBench(args []string) {
 	if len(args) < 1 {
@@ -584,4 +775,11 @@ func formatFloat(f float64) string {
 		return strconv.FormatInt(int64(f), 10)
 	}
 	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

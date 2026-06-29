@@ -1,164 +1,131 @@
-# 🧪 Loop Engineering
+# Loop Engineering — Autonomous AI Coding Agent
 
-> *Build software through autonomous, self-correcting experiment loops.*
-> **Pure Go** — single binary, zero dependencies, cross-platform. No bash/Python/Node.
+## What is Loop Engineering?
+A **Go CLI tool** that serves as both:
+1. **MCP Server** 🧩 — exposes tools (`read_file`, `write_file`, `run_command`, etc.) for any MCP-compatible LLM client (Claude Code, Cursor, Cline)
+2. **Self-contained AI Agent** 🤖 — built-in LLM client that reads your project, plans changes, writes code, runs tests, and iterates autonomously
 
-## Philosophy
-
-**The `loop` binary is the orchestrator.** It reads config, runs benchmarks, checks termination conditions, and decides when to stop. The AI agent writes code; `loop` evaluates it.
+Zero external dependencies. Single binary. Works with Grok, DeepSeek, OpenAI, or local Ollama.
 
 ## Quick Start
 
+### 1. Build
 ```bash
 go build -o loop ./cmd/loop/
+```
 
-# Initialize a session
-./loop init "Optimize latency" p99_latency_ms --unit "ms" --direction lower
+### 2. MCP Server Mode (works with any LLM client)
+```bash
+# Start MCP server via stdio
+./loop mcp
+```
+Then connect your LLM client:
+- **Claude Code**: `claude mcp add -- stdio -- /path/to/loop mcp`
+- **Cursor**: Configure as custom MCP server
+- **Cline**: Add as MCP tool server
 
-# Edit autoresearch.config.json:
-#   {
-#     "metricName": "p99_latency_ms",
-#     "command": "go test -bench=. -benchtime=10x ./api/",
-#     "termination": {
-#       "conditions": [{"metric": "p99_latency_ms", "operator": "<=", "value": 50}]
-#     }
-#   }
+Exposed tools:
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read files with offset/limit |
+| `write_file` | Write/create files |
+| `run_command` | Execute shell commands |
+| `list_files` | List project files |
+| `read_config` | Read experiment config |
+| `get_metrics` | Get test/benchmark results |
+| `check_termination` | Check if goals met |
 
-# Run one iteration — loop auto handles everything:
+### 3. Self-contained AI Agent Mode
+```bash
+# With Grok (default)
+./loop ai --api-key xai-...
+
+# With DeepSeek
+./loop ai --provider deepseek --api-key sk-...
+
+# With local Ollama
+./loop ai --provider ollama
+
+# Configure in autoresearch.config.json:
+# "ai": { "provider": { "provider": "grok", "model": "grok-4-20-0309-reasoning" } }
+# Or set LOOP_API_KEY env var
+```
+
+### 4. Experiment Loop Mode
+```bash
+# Manual experiment
+./loop run "go test ./..."
+
+# Autonomous iteration from config
 ./loop auto
-# → ✅ LOOP COMPLETE: target reached
-# → 🔄 LOOP CONTINUE: keep iterating
 ```
 
 ## Commands
 
-| Command | What it does |
-|---------|-------------|
-| `loop init <name> <metric> [--unit <u>] [--direction <d>]` | Initialize experiment session |
-| `loop run <command> [--timeout <s>]` | Run a command, time it, capture METRIC lines |
-| **`loop auto`** | **Run one iteration: execute command → parse metrics → check termination → log → verdict** |
-| `loop bench <pkg> [--benchtime <d>] [--count <n>]` | Run Go benchmarks, output as METRIC lines |
-| `loop check` | Validate project health |
+| Command | Purpose |
+|---------|---------|
+| `loop mcp` | MCP server — tools for any LLM client |
+| `loop ai` | Self-contained AI agent (OODA loop) |
+| `loop run` | Execute command with timing |
+| `loop auto` | Autonomous experiment iteration |
+| `loop bench` | Run Go benchmarks as METRIC lines |
+| `loop check` | Validate project state |
+| `loop init` | Initialize experiment session |
 | `loop version` | Print version |
 
-## METRIC Protocol
+## Security
+Before any file content is sent to a cloud LLM API, the **security scanner** runs:
+- Detects API keys, passwords, tokens, private keys
+- Flags `.env`, `*.pem`, `secrets.*` files
+- Warns and asks confirmation on critical findings
 
-Your benchmark must output `METRIC name=value` lines:
+## Configuration
 
-```
-METRIC p99_latency_ms=42.5
-METRIC throughput_tps=18500
-```
-
-Built-in METRIC lines from `loop`:
-```
-METRIC exit_code=0
-METRIC duration_ms=3211
-METRIC timed_out=0
-```
-
-## `loop auto` — The Orchestrator
-
-Reads `autoresearch.config.json`:
-
+### `autoresearch.config.json`
 ```json
 {
   "metricName": "test_count",
-  "command": "npx vitest run --reporter=json | python3 -c \"...\"",
+  "direction": "higher",
+  "command": "go test ./...",
+  "maxIterations": 50,
   "termination": {
-    "maxIterations": 50,
     "conditions": [
-      { "metric": "test_count", "operator": ">=", "value": 74 }
+      { "metric": "test_count", "operator": ">=", "value": 50 }
     ]
+  },
+  "ai": {
+    "maxIterations": 10,
+    "filesInScope": ["*.go", "*.ts"],
+    "provider": {
+      "provider": "grok",
+      "model": "grok-4-20-0309-reasoning",
+      "endpoint": "https://api.x.ai/v1",
+      "apiKey": ""
+    }
   }
 }
 ```
 
-On each run it:
-1. Executes the command
-2. Parses all `METRIC` lines
-3. Checks every termination condition
-4. Logs to `autoresearch.jsonl`
-5. Outputs verdict: **`✅ LOOP COMPLETE`** or **`🔄 LOOP CONTINUE`**
+### `autoresearch.md`
+Defines the project objective, rules, and metrics for the AI agent.
 
-## `loop bench` — Go Benchmark Runner
+## Supported LLM Providers
 
-Runs `go test -bench` and converts results to METRIC lines:
+| Provider | Flag | Env Var | Default Model |
+|----------|------|---------|---------------|
+| Grok (xAI) | `--provider grok` | `LOOP_API_KEY` | `grok-4-20-0309-reasoning` |
+| DeepSeek | `--provider deepseek` | `LOOP_API_KEY` | `deepseek-v4-flash` |
+| OpenAI | `--provider openai` | `LOOP_API_KEY` | `gpt-4o` |
+| Ollama (local) | `--provider ollama` | — | `gemma4-hermes` |
 
-```bash
-./loop bench ./examples/fintech-pay/ --benchtime 100x
-```
-
-Output:
-```
-METRIC exit_code=0
-METRIC duration_ms=986
-METRIC BenchmarkLuhnCheck_ns_per_op=35.84
-METRIC BenchmarkProcess_ns_per_op=123.3
-```
-
-## Industry Examples
-
-Each example has `autoresearch.config.json` ready — just `cd` and run:
-
-```bash
-cd /Users/gutchapa/loop_engg
-
-# FinTech — Luhn validation throughput
-./loop bench ./examples/fintech-pay/ --benchtime 100x
-
-# Healthcare — patient record search
-./loop bench ./examples/healthcare-search/ --benchtime 100x
-
-# E-Commerce — product catalog filter+sort
-./loop bench ./examples/ecommerce-catalog/ --benchtime 100x
-
-# DevOps — log parsing throughput
-./loop bench ./examples/devops-logparse/ --benchtime 100x
-
-# Media — thumbnail generation
-./loop bench ./examples/media-thumb/ --benchtime 100x
-
-# Logistics — route optimization
-./loop bench ./examples/logistics-route/ --benchtime 100x
-```
-
-Or use `loop auto` with an example's config:
-```bash
-cp examples/fintech-pay/autoresearch.config.json .
-./loop auto
-```
-
-## Use on Your Own Project
-
-```bash
-# 1. Build
-go build -o loop ./cmd/loop/
-
-# 2. Copy to your project
-cp loop autoresearch.config.json autoresearch.template.md ../your-project/
-cd ../your-project
-
-# 3. Edit autoresearch.config.json with your command + termination
-# 4. Initialize
-./loop init "My Opt" my_metric --direction lower
-
-# 5. Code → auto → code → auto → done
-./loop auto
-```
-
-## Contents
-
-| File | Purpose |
-|------|---------|
-| [`LOOP_ENGINEERING.md`](./LOOP_ENGINEERING.md) | Full methodology — principles, loop diagram, ASI |
-| [`cmd/loop/main.go`](./cmd/loop/main.go) | `loop` CLI (Go, single binary) |
-| [`internal/`](./internal/) | Go packages: config, run, metric, log |
-| [`examples/`](./examples/) | 6 industry demo projects with configs |
-| [`autoresearch.config.json`](./autoresearch.config.json) | Config template |
-| [`autoresearch.template.md`](./autoresearch.template.md) | Bring your own rules template |
-| [`autoresearch.ideas.md`](./autoresearch.ideas.md) | Ideas backlog |
+## Example Projects
+See `examples/` for industry-specific Go demos:
+- Fintech payment processing
+- Healthcare search
+- E-commerce catalog
+- DevOps log parsing
+- Media thumbnail
+- Logistics route optimization
 
 ## License
-
 MIT

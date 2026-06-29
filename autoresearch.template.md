@@ -3,41 +3,72 @@
 ## Objective
 [Describe what you're optimizing. Example: "Reduce P99 latency of the payment API to under 50ms."]
 
-## How It Works
-The `loop` binary (Go CLI) is the orchestrator:
+## Modes
 
-1. **Configure** — set `command`, `metricName`, and `termination` in `autoresearch.config.json`
-2. **Run** — `./loop auto` executes one iteration:
-   - Runs your benchmark command
-   - Parses `METRIC name=value` lines from output
-   - Checks termination conditions
-   - Logs result to `autoresearch.jsonl`
-   - Outputs `✅ LOOP COMPLETE` (target met) or `🔄 LOOP CONTINUE` (keep iterating)
+### Mode 1: MCP Server (works with any LLM client)
+```bash
+./loop mcp
+```
+Exposes tools to any MCP-compatible client (Claude Code, Cursor, Cline, etc.):
+- `read_file` — read project files
+- `write_file` — write/modify code
+- `run_command` — execute tests/builds
+- `list_files` — explore project structure
+- `read_config` — read experiment config
+
+### Mode 2: Self-contained AI Agent
+```bash
+./loop ai --provider grok --api-key xai-...
+```
+The binary reads your project, calls an LLM, writes code, runs tests, and loops autonomously.
+
+### Mode 3: Simple Experiment Loop
+```bash
+./loop auto
+```
+Runs your command, checks termination conditions, logs results.
 
 ## Setup
 
+### 1. Configure `autoresearch.config.json`
+```json
+{
+  "metricName": "[your_metric]",
+  "command": "[your_benchmark_command]",
+  "termination": {
+    "maxIterations": 30,
+    "conditions": [
+      { "metric": "[your_metric]", "operator": "<=", "value": 50 }
+    ]
+  },
+  "ai": {
+    "maxIterations": 10,
+    "filesInScope": ["*.go", "*.ts", "*.json"],
+    "provider": {
+      "provider": "grok",
+      "model": "grok-4-20-0309-reasoning",
+      "endpoint": "https://api.x.ai/v1",
+      "apiKey": ""
+    }
+  }
+}
+```
+
+### 2. Initialize
 ```bash
-# 1. Initialize experiment session (writes config header to autoresearch.jsonl)
-./loop init "Reduce API latency" "p99_latency_ms" --unit "ms" --direction "lower"
+./loop init "[project_name]" "[metric_name]" --direction "lower"
+```
 
-# 2. Edit autoresearch.config.json with your command and termination conditions:
-#    {
-#      "metricName": "p99_latency_ms",
-#      "command": "go test -bench=. -benchtime=1x ./internal/api",
-#      "termination": {
-#        "maxIterations": 30,
-#        "conditions": [
-#          { "metric": "p99_latency_ms", "operator": "<=", "value": 50 }
-#        ]
-#      }
-#    }
+### 3. Run
+```bash
+# MCP mode (any LLM client connects)
+./loop mcp
 
-# 3. The AI writes/improves code, then:
+# Or self-contained AI agent
+./loop ai --provider grok
+
+# Or simple experiment loop
 ./loop auto
-
-# 4. Read the verdict:
-#    ✅ LOOP COMPLETE: p99_latency_ms <= 50 (got 42)   → DONE
-#    🔄 LOOP CONTINUE: conditions not yet met            → iterate again
 ```
 
 ## Metrics
@@ -47,9 +78,7 @@ The `loop` binary (Go CLI) is the orchestrator:
 |--------|------|-----------|-------------|
 | [your_metric] | [ms/µs/tx/s/kb/—] | [lower/higher] | [what it measures] |
 
-> ⚠️ Replace `[your_metric]` above. Must match `metricName` in `autoresearch.config.json`.
-
-### Secondary (monitoring only)
+### Secondary
 | Metric | Description |
 |--------|-------------|
 | `exit_code` | Must be 0 (build/test pass) |
@@ -57,42 +86,22 @@ The `loop` binary (Go CLI) is the orchestrator:
 
 ## Termination Conditions
 Defined in `autoresearch.config.json` under `termination`:
-
-```json
-"termination": {
-  "maxIterations": 30,
-  "conditions": [
-    { "metric": "p99_latency_ms", "operator": "<=", "value": 50 }
-  ]
-}
-```
-
-**Operators**: `>=`, `<=`, `==`, `>`, `<`
-
-Multiple conditions = AND (all must be met).
-
-The `loop auto` command automatically checks these and outputs the verdict.
+- **Operators**: `>=`, `<=`, `==`, `>`, `<`
+- Multiple conditions = AND (all must be met)
+- `loop auto` checks these automatically
 
 ## Output Protocol
-Your benchmark command must output `METRIC name=value` lines:
+Your command must output `METRIC name=value` lines:
 ```
 METRIC p99_latency_ms=42.5
-METRIC p50_latency_ms=12.3
-```
-
-Built-in METRIC lines from `loop auto`:
-```
-METRIC exit_code=0
-METRIC duration_ms=3211
 ```
 
 ## Files in Scope
 [List files the agent is allowed to modify]
-- `cmd/` — CLI entry point
-- `internal/` — core packages
-- `pkg/` — public API
+- `cmd/`
+- `internal/`
+- `pkg/`
 - `go.mod`, `go.sum`
-- etc.
 
 ## Off Limits
 [List files the agent must never touch]
@@ -101,6 +110,6 @@ METRIC duration_ms=3211
 - `third_party/`
 
 ## Hard Stop
-- If `loop auto` says `LOOP COMPLETE` — the goal is met, stop
+- If `loop auto` says `LOOP COMPLETE` — stop
 - If user says to stop — stop immediately
-- If no more meaningful optimizations to try — stop
+- If no more meaningful optimizations — stop

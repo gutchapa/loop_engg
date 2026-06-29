@@ -23,15 +23,31 @@ type TerminationConfig struct {
 	Conditions    []TerminationCondition `json:"conditions,omitempty"`
 }
 
+// AIProviderConfig configures an LLM provider for autonomous AI mode.
+type AIProviderConfig struct {
+	Provider string `json:"provider,omitempty"` // "openai", "grok", "deepseek", "ollama"
+	Model    string `json:"model,omitempty"`    // model name
+	Endpoint string `json:"endpoint,omitempty"` // API endpoint URL
+	APIKey   string `json:"apiKey,omitempty"`   // API key (also read from LOOP_API_KEY env var)
+}
+
+// AIConfig configures the autonomous AI agent mode.
+type AIConfig struct {
+	MaxIterations int              `json:"maxIterations,omitempty"` // max AI loop iterations
+	Provider      AIProviderConfig `json:"provider,omitempty"`
+	FilesInScope  []string         `json:"filesInScope,omitempty"` // file patterns to include in context
+}
+
 // Config represents the full experiment configuration.
 type Config struct {
-	MetricName  string            `json:"metricName,omitempty"`
-	MetricUnit  string            `json:"metricUnit,omitempty"`
-	Direction   string            `json:"direction,omitempty"`   // "higher" or "lower"
-	Command     string            `json:"command,omitempty"`     // default experiment command
-	MaxIterations int             `json:"maxIterations"`
-	WorkingDir  string            `json:"workingDir"`
-	Termination TerminationConfig `json:"termination,omitempty"`
+	MetricName    string            `json:"metricName,omitempty"`
+	MetricUnit    string            `json:"metricUnit,omitempty"`
+	Direction     string            `json:"direction,omitempty"`   // "higher" or "lower"
+	Command       string            `json:"command,omitempty"`     // default experiment command
+	MaxIterations int               `json:"maxIterations"`
+	WorkingDir    string            `json:"workingDir"`
+	Termination   TerminationConfig `json:"termination,omitempty"`
+	AI            *AIConfig         `json:"ai,omitempty"`          // AI agent config (optional)
 }
 
 func DefaultConfig() Config {
