@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gutchapa/loop/internal/config"
+	"github.com/gutchapa/loop/internal/log"
 )
 
 // ProjectContext holds the full context for the AI agent.
@@ -239,4 +240,49 @@ func truncateContent(content string, maxLen int) string {
 		return content
 	}
 	return content[:maxLen] + "\n... [truncated]"
+}
+
+// FalseResumeWarning is returned when the agent detects it's in autoresearch mode
+// but no actual experiment is running (no experiment log). This is the
+// "compaction → resume → compaction" ghost loop pattern.
+type FalseResumeWarning struct {
+	Message string
+	Fix     string
+}
+
+// DetectFalseResume checks whether the agent is stuck in a false autoresearch resume loop.
+// Returns nil if a real experiment is running or if we can't determine.
+// This catches the pattern where auto-compaction re-prompts "resume experiment loop"
+// but no experiment was ever started.
+func DetectFalseResume(workingDir string) *FalseResumeWarning {
+	logPath := filepath.Join(workingDir, log.DefaultFileName)
+
+	// If autoresearch.jsonl doesn't exist, no experiment was ever started.
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		return &FalseResumeWarning{
+			Message: "No experiment log found — the agent has been triggered to resume an autoresearch loop, but no experiment was ever started. This is likely a false resume triggered by auto-compaction while autoresearch mode was left active from a previous session.",
+			Fix:     "/autoresearch off",
+		}
+	}
+
+	// Even if the log exists, check if there are any actual experiment entries
+	// (not just config headers). A log with only config entries = never ran.
+	exps, err := log.ReadAll(logPath)
+	if err == nil {
+		hasExperiments := false
+		for _, e := range exps {
+			if e.Type == "experiment" {
+				hasExperiments = true
+				break
+			}
+		}
+		if !hasExperiments {
+			return &FalseResumeWarning{
+				Message: "Experiment log exists but contains no experiment runs — only config headers. The agent is being asked to resume a loop that never started.",
+				Fix:     "/autoresearch off",
+			}
+		}
+	}
+
+	return nil
 }

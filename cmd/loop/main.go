@@ -553,7 +553,15 @@ func cmdAI(args []string) {
 
 	fmt.Fprintf(os.Stderr, "🤖 AI Agent starting: %s (%s)\n", model, ep)
 	fmt.Fprintf(os.Stderr, "📋 Objective: %s\n", ctx.Objective)
-	fmt.Fprintf(os.Stderr, "🔄 Max iterations: %d\n\n", maxIter)
+	fmt.Fprintf(os.Stderr, "🔄 Max iterations: %d\n", maxIter)
+
+	// Self-awareness: detect false resume after auto-compaction
+	if fw := planner.DetectFalseResume(workingDir); fw != nil {
+		fmt.Fprintf(os.Stderr, "\n⚠️  FALSE RESUME DETECTED\n%s\n\n💡 Fix: type %s in pi to stop autoresearch mode.\n\n", fw.Message, fw.Fix)
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "\n")
 
 	// Main AI loop
 	for iter := 1; iter <= maxIter; iter++ {
