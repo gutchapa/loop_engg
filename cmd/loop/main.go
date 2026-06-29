@@ -13,6 +13,7 @@ import (
 	"github.com/gutchapa/loop/internal/bridge"
 	"github.com/gutchapa/loop/internal/config"
 	"github.com/gutchapa/loop/internal/diagnose"
+	"github.com/gutchapa/loop/internal/evolve"
 	"github.com/gutchapa/loop/internal/learn"
 	"github.com/gutchapa/loop/internal/llm"
 	"github.com/gutchapa/loop/internal/log"
@@ -539,6 +540,9 @@ func cmdAI(args []string) {
 	// Inject knowledge into context for the LLM
 	ctx.KnowledgeSummary = store.Summary()
 
+	// Initialize evolution engine for self-improvement
+	evo := evolve.New(store)
+
 	maxIter := 10
 	if aiCfg != nil && aiCfg.MaxIterations > 0 {
 		maxIter = aiCfg.MaxIterations
@@ -607,12 +611,14 @@ func cmdAI(args []string) {
 		}
 
 		// Run tests after LLM conversation to verify changes
+		var allMetrics []metric.Metric
+		var result *run.Result
 		if cfg.Command != "" {
 			fmt.Fprintf(os.Stderr, "\n🧪 Running tests...\n")
 			opts := run.Options{Timeout: timeout, Dir: workingDir}
-			result := run.Run(cfg.Command, opts)
+			result = run.Run(cfg.Command, opts)
 
-			allMetrics := metric.ParseAll(result.Combined)
+			allMetrics = metric.ParseAll(result.Combined)
 			for _, m := range allMetrics {
 				fmt.Fprintf(os.Stderr, "   METRIC %s=%s\n", m.Name, m.Value)
 			}
@@ -631,6 +637,53 @@ func cmdAI(args []string) {
 					Content: fmt.Sprintf("Tests failed. Diagnosis: %s\n%s\nFix the issue before continuing.", diag.Summary(), diag.Report()),
 				})
 			}
+		}
+
+		// Record snapshot for evolution engine
+	if result != nil {
+		var prevMetric float64
+		if len(evo.History) > 0 {
+			prevMetric = evo.History[len(evo.History)-1].Metric
+		}
+		currentMetric := float64(0)
+		if len(allMetrics) > 0 {
+			primaryName := "test_count"
+			if cfg.Metric != nil && cfg.Metric.Name != "" {
+				primaryName = cfg.Metric.Name
+			}
+			for _, m := range allMetrics {
+				if m.Name == primaryName {
+					if v, err := strconv.ParseFloat(m.Value, 64); err == nil {
+						currentMetric = v
+					}
+					break
+				}
+			}
+		}
+
+		direction := "lower"
+		if ctx.Config.Metric != nil {
+			direction = ctx.Config.Metric.Direction
+		}
+
+		snap := evolve.Snapshot{
+			Iteration:  iter,
+			Metric:     currentMetric,
+			PrevMetric: prevMetric,
+			Direction:  direction,
+			ExitCode:   result.ExitCode,
+			TestOutput: result.Combined,
+		}
+		evo.Record(snap)
+
+		// Evaluate and show evolution status
+		if iter%2 == 0 || iter == maxIter {
+			assessment := evo.Evaluate()
+			fmt.Fprintf(os.Stderr, "🧬 %s\n", evo.Summary())
+			if assessment.PromptPatch != "" {
+				ctx.KnowledgeSummary += "\n\n" + assessment.PromptPatch
+			}
+	}
 		}
 
 		// Refresh context for next iteration
